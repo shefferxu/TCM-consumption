@@ -1,0 +1,2388 @@
+---
+title: "三家厂家2019中药摄入量分布"
+author: "Xiaohui Xu"
+date: "2020/10/1"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,warning=FALSE, message=FALSE)
+```
+
+
+```{r retrieve data, echo=FALSE, message=FALSE, warning=FALSE}
+library("RMySQL")   #加载RMySQL包，调用RMySQL包，以进行与MySQL数据库的连接
+library("utf8")     #  加载utf8包
+library("DBI")    #加载DBI包
+library("MASS")    #加载MASS包     
+library("survival") #加载survival包
+library("ggplot2") #加载ggplot2
+library("knitr")#加载knitr包
+library("dplyr")#加载dplyr包
+library("kableExtra")#加载kableExtra包
+library("reshape2")
+library("stringr")
+library("tidyverse")
+library("sjPlot")
+#链接数据库
+tryCatch(mysqlconnection <- dbConnect(MySQL(), user = 'root', password = '5mayday', 
+                                      dbname = 'ctm', host = 'localhost',DBMSencoding="UTF8")) 
+tryCatch(dbSendQuery(mysqlconnection, 'SET NAMES gbk'))   
+memory.limit(102400)
+#获取数据
+kq2019<-dbReadTable(mysqlconnection, "kq2019")
+wansc2019<-dbReadTable(mysqlconnection, "wansc2019")
+hq2019_raw<-dbReadTable(mysqlconnection, "hq2019_raw")
+```
+
+```{r All data clean, echo=FALSE}
+
+## 数据清洗
+t <- which(stringr::str_detect(wansc2019$CMN,"蜈蚣"))
+t <- which(stringr::str_detect(wansc2019$CMN,"坎炁"))
+t <- which(stringr::str_detect(wansc2019$CMN,"抗变汤"))
+t <- which(stringr::str_detect(wansc2019$CMN,"健脾抗瘤汤"))
+wansc2019[t,]$DD <- 1
+t <- which(stringr::str_detect(wansc2019$CMN,"川贝粉已付"))
+wansc2019[t,]$DD <- 30
+t <- which(stringr::str_detect(wansc2019$CMN,"(2015)"))
+wansc2019[t,]$DD <- 1
+t <- which(stringr::str_detect(wansc2019$CMN,"（2019）"))
+wansc2019[t,]$DD <- 1
+t <- which(stringr::str_detect(wansc2019$DD,"2*10包"))
+wansc2019[t,]$DD <- 20
+t <- which(stringr::str_detect(wansc2019$DD,"2*7袋/盒"))
+wansc2019[t,]$DD <- 14
+wansc2019$DD <- gsub("[^0-9\\.]","",wansc2019$DD)
+## hq2019和wansc2019唯一性识别号合并
+### hq2019_raw
+hq2019_raw$H_Name <- str_c(hq2019_raw$H ,sep = ";", hq2019_raw$Name )
+### wansc2019
+wansc2019$ID <- wansc2019$Phone
+sub <- which(is.na(wansc2019$ID))
+wansc2019[sub,]$ID  <- wansc2019[sub,]$Tel
+wansc2019$ID_Name <- str_c(wansc2019$Name,sep = ";",wansc2019$ID)
+```
+```{r 黄芪 data clean, echo=FALSE}
+
+# --------提取万仕城黄芪的数据---------
+t <- which(stringr::str_detect(wansc2019$CMN,"黄芪"))
+黄芪 <- wansc2019[t,]
+黄芪$DD <- as.numeric(黄芪$DD)
+黄芪$days <- as.numeric(黄芪$days)
+黄芪$ds <- 黄芪$DD*黄芪$days
+黄芪$ds <- as.numeric(黄芪$ds)
+det1<-as.data.frame(黄芪[,c("ID_Name","ds","CMN","days")])
+#生成ID_Name为识别号的数据框 
+wansc2019_intakesum<-reshape2::dcast(det1, 	
+                           ID_Name ~ CMN,
+                           value.var = "ds", sum)	
+黄芪_wansc2019_intakesum<-as.vector(as.matrix(wansc2019_intakesum$`黄芪`))
+wansc2019_dayssum<-reshape2::dcast(det1,
+                      ID_Name ~  CMN,
+                      value.var = "days",sum)
+黄芪_wansc2019_dayssum<-as.vector(as.matrix(wansc2019_dayssum$`黄芪`))
+#合并黄芪的消费量和days表格
+wansc2019_intakemergedays <- merge(x=wansc2019_intakesum, y=wansc2019_dayssum,
+                         by.x="ID_Name",
+                         by.y="ID_Name"
+)
+options(digits = 3)
+wansc2019_intakemergedays$standard <- wansc2019_intakemergedays$黄芪.x/wansc2019_intakemergedays$黄芪.y
+黄芪_dailyintake <- as.vector(as.matrix(wansc2019_intakemergedays$standard))
+
+#--------提取虹桥黄芪的数据---------
+黄芪 <- hq2019_raw[hq2019_raw$CMN =="黄芪",]
+黄芪$DD <- as.numeric(黄芪$DD)
+黄芪$days <- as.numeric(黄芪$days)
+黄芪$total <- 黄芪$DD*黄芪$days
+黄芪$total <- as.numeric(黄芪$total)
+det1<-as.data.frame(黄芪[,c("H_Name","total","CMN","days")])
+#生成H_Name为识别号的数据框
+hq2019_raw_intakesum<-reshape2::dcast(det1, 	
+                                  H_Name ~ CMN,
+                                  value.var = "total", sum)	
+黄芪_hq2019_raw_intakesum<-as.vector(as.matrix(hq2019_raw_intakesum$`黄芪`))
+hq2019_raw_dayssum<-reshape2::dcast(det1,
+                                H_Name ~  CMN,
+                                value.var = "days",sum)
+黄芪_hq2019_raw_dayssum<-as.vector(as.matrix(hq2019_raw_dayssum$`黄芪`))
+#合并黄芪的消费量和days表格
+hq2019_raw_intakemergedays <- merge(x=hq2019_raw_intakesum, y=hq2019_raw_dayssum,
+                                by.x="H_Name",
+                                by.y="H_Name"
+)
+options(digits = 3)
+hq2019_raw_intakemergedays$standard <- hq2019_raw_intakemergedays$黄芪.x/hq2019_raw_intakemergedays$黄芪.y
+黄芪_hq2019_raw_dailyintake <- as.vector(as.matrix(hq2019_raw_intakemergedays$standard))
+
+#--------提取康桥黄芪的数据---------
+黄芪 <- kq2019[kq2019$CMN =="黄芪",]
+黄芪$DD <- as.numeric(黄芪$DD)
+黄芪$days <- as.numeric(黄芪$days)
+黄芪$total <- 黄芪$DD*黄芪$days
+黄芪$total <- as.numeric(黄芪$total)
+det1<-as.data.frame(黄芪[,c("Name","total","CMN","days")])
+#生成Name为识别号的数据框
+kq2019_intakesum<-reshape2::dcast(det1, 	
+                                  Name ~ CMN,
+                                  value.var = "total", sum)	
+黄芪_kq2019_intakesum<-as.vector(as.matrix(kq2019_intakesum$`黄芪`))
+kq2019_dayssum<-reshape2::dcast(det1,
+                                Name ~  CMN,
+                                value.var = "days",sum)
+黄芪_kq2019_dayssum<-as.vector(as.matrix(kq2019_dayssum$`黄芪`))
+#合并黄芪的消费量和days表格
+kq2019_intakemergedays <- merge(x=kq2019_intakesum, y=kq2019_dayssum,
+                                by.x="Name",
+                                by.y="Name"
+)
+options(digits = 3)
+kq2019_intakemergedays$standard <- kq2019_intakemergedays$黄芪.x/kq2019_intakemergedays$黄芪.y
+黄芪_kq2019_dailyintake <- as.vector(as.matrix(kq2019_intakemergedays$standard))
+
+#将三个厂的数据结合
+colnames(hq2019_raw_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(wansc2019_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_intakemergedays,kq2019_intakemergedays)
+wansc2019_hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_kq2019_intakemergedays,wansc2019_intakemergedays)
+colnames(wansc2019_hq2019_raw_kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+write.table(wansc2019_hq2019_raw_kq2019_intakemergedays,file="D:\\A长三院\\识别号更改后\\三家药厂黄芪个人摄入量.csv",row.names = F,col.names = T,sep=",")
+```
+
+
+<center>
+```{r 黄芪 intake distribution, echo=FALSE}
+#算年摄入量百分比
+options(digits=1)
+黄芪_wansc2019_hq2019_raw_kq2019_intakesum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$intakesum))
+年摄入量<-c(quantile(黄芪_wansc2019_hq2019_raw_kq2019_intakesum, probs = c(0.05,0.5,0.95)), mean(黄芪_wansc2019_hq2019_raw_kq2019_intakesum))
+#算摄入天数百分比
+黄芪_wansc2019_hq2019_raw_kq2019_dayssum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$days))
+摄入天数 <- c(quantile(黄芪_wansc2019_hq2019_raw_kq2019_dayssum, probs = c(0.05,0.5,0.95)), mean(黄芪_wansc2019_hq2019_raw_kq2019_dayssum))
+#算每日摄入量百分比
+黄芪_wansc2019_hq2019_raw_kq2019_dailyintake <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$standard))
+每日摄入量 <- c(quantile(黄芪_wansc2019_hq2019_raw_kq2019_dailyintake, probs = c(0.05,0.5,0.95)), mean(黄芪_hq2019_raw_dailyintake))
+#作黄芪摄入量分布图
+hist(黄芪_wansc2019_hq2019_raw_kq2019_intakesum,
+        main="",
+        xlab="黄芪(g)",ylab="Frequency",
+        col = "#56B4E9",border = TRUE,cex.axis=0.7,cex.lab=0.7,
+        xlim=c(0,2*年摄入量[3]),ylim=c(0,max(table(黄芪_wansc2019_hq2019_raw_kq2019_intakesum))*2),
+        breaks = 年摄入量[3]/10)
+#画直线
+
+abline(v = 年摄入量,lty = 3,lwd = 2,col=c("green","yellow","red","orange"))
+#加标注
+A4<-paste(c("p5     ","p50   ","p95   ","mean"),
+          c(round(年摄入量[1:2],4),round(年摄入量[3],4),round(年摄入量[4],0)),
+          sep=":")
+legend("topright",legend=A4, 
+       col=c("green","yellow","red","orange"),lty=c(2,2,2,2),lwd=c(2,2,2,2),cex=0.6,bty = "o")
+#线上写文字
+text(c(年摄入量[1]-2.5*年摄入量[3]/50,
+           年摄入量[2]+2.5*年摄入量[3]/30,
+           年摄入量[4]+2.5*年摄入量[3]/20,
+           年摄入量[3]-2.5*年摄入量[3]/30),
+     max(table(黄芪_wansc2019_hq2019_raw_kq2019_intakesum))*2,
+     c("p5","p50","mean","p95"),cex=0.7)
+```
+<center><font face="黑体" size=2>图 1 2019年上海部分饮片厂黄芪年摄入量总体分布图(单位：g)</center></font>
+  
+  <center><font face="黑体" size=2>表 1 2019年上海部分饮片厂饮片厂黄芪摄入量分布情况表</center></font>
+```{r 黄芪 summary , echo=FALSE}
+#生成2019年黄芪摄入量分布表
+options(digits=1)
+p4 <- rbind(年摄入量,摄入天数,每日摄入量)
+p4 <-t(p4)
+rownames(p4) <- c("P5","P50","P95","平均值")
+colnames(p4) <- c("年摄入量（g/y）","摄入天数（d）","每日摄入量（g/d）")
+kable(p4)%>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r 黄芪 export , echo=FALSE}
+paste("上海部分饮片厂2019年中药摄入量的数据中，摄入黄芪的人数大约为",length(wansc2019_hq2019_raw_kq2019_intakemergedays$Name),"人，2019年黄芪的年摄入量P50值、P95值和平均值分别为",round(p4[2,1],1),"、",round(p4[3,1],1),"和",round(p4[4,1],1), " g/y，摄入天数的P50值、P95值和平均值分别为",round(p4[2,2],1),"、",round(p4[3,2],1),"和",round(p4[4,2],1), " d，每日摄入量的P50值、P95值和平均值分别为",round(p4[2,3],1),"、",round(p4[3,3],1),"和",round(p4[4,3],1), " g/d。",sep="")
+```
+
+
+```{r 薏苡仁 data clean, echo=FALSE}
+
+# --------提取万仕城薏苡仁的数据---------
+t <- which(stringr::str_detect(wansc2019$CMN,"薏苡仁"))
+薏苡仁 <- wansc2019[t,]
+薏苡仁$DD <- as.numeric(薏苡仁$DD)
+薏苡仁$days <- as.numeric(薏苡仁$days)
+薏苡仁$ds <- 薏苡仁$DD*薏苡仁$days
+薏苡仁$ds <- as.numeric(薏苡仁$ds)
+det1<-as.data.frame(薏苡仁[,c("ID_Name","ds","CMN","days")])
+#生成ID_Name为识别号的数据框 
+wansc2019_intakesum<-reshape2::dcast(det1, 	
+                           ID_Name ~ CMN,
+                           value.var = "ds", sum)	
+薏苡仁_wansc2019_intakesum<-as.vector(as.matrix(wansc2019_intakesum$`薏苡仁`))
+wansc2019_dayssum<-reshape2::dcast(det1,
+                      ID_Name ~  CMN,
+                      value.var = "days",sum)
+薏苡仁_wansc2019_dayssum<-as.vector(as.matrix(wansc2019_dayssum$`薏苡仁`))
+#合并薏苡仁的消费量和days表格
+wansc2019_intakemergedays <- merge(x=wansc2019_intakesum, y=wansc2019_dayssum,
+                         by.x="ID_Name",
+                         by.y="ID_Name"
+)
+options(digits = 3)
+wansc2019_intakemergedays$standard <- wansc2019_intakemergedays$薏苡仁.x/wansc2019_intakemergedays$薏苡仁.y
+薏苡仁_dailyintake <- as.vector(as.matrix(wansc2019_intakemergedays$standard))
+
+#--------提取虹桥薏苡仁的数据---------
+薏苡仁 <- hq2019_raw[hq2019_raw$CMN =="薏苡仁",]
+薏苡仁$DD <- as.numeric(薏苡仁$DD)
+薏苡仁$days <- as.numeric(薏苡仁$days)
+薏苡仁$total <- 薏苡仁$DD*薏苡仁$days
+薏苡仁$total <- as.numeric(薏苡仁$total)
+det1<-as.data.frame(薏苡仁[,c("H_Name","total","CMN","days")])
+#生成H_Name为识别号的数据框
+hq2019_raw_intakesum<-reshape2::dcast(det1, 	
+                                  H_Name ~ CMN,
+                                  value.var = "total", sum)	
+薏苡仁_hq2019_raw_intakesum<-as.vector(as.matrix(hq2019_raw_intakesum$`薏苡仁`))
+hq2019_raw_dayssum<-reshape2::dcast(det1,
+                                H_Name ~  CMN,
+                                value.var = "days",sum)
+薏苡仁_hq2019_raw_dayssum<-as.vector(as.matrix(hq2019_raw_dayssum$`薏苡仁`))
+#合并薏苡仁的消费量和days表格
+hq2019_raw_intakemergedays <- merge(x=hq2019_raw_intakesum, y=hq2019_raw_dayssum,
+                                by.x="H_Name",
+                                by.y="H_Name"
+)
+options(digits = 3)
+hq2019_raw_intakemergedays$standard <- hq2019_raw_intakemergedays$薏苡仁.x/hq2019_raw_intakemergedays$薏苡仁.y
+薏苡仁_hq2019_raw_dailyintake <- as.vector(as.matrix(hq2019_raw_intakemergedays$standard))
+
+#--------提取康桥薏苡仁的数据---------
+薏苡仁 <- kq2019[kq2019$CMN =="薏苡仁",]
+薏苡仁$DD <- as.numeric(薏苡仁$DD)
+薏苡仁$days <- as.numeric(薏苡仁$days)
+薏苡仁$total <- 薏苡仁$DD*薏苡仁$days
+薏苡仁$total <- as.numeric(薏苡仁$total)
+det1<-as.data.frame(薏苡仁[,c("Name","total","CMN","days")])
+#生成Name为识别号的数据框
+kq2019_intakesum<-reshape2::dcast(det1, 	
+                                  Name ~ CMN,
+                                  value.var = "total", sum)	
+薏苡仁_kq2019_intakesum<-as.vector(as.matrix(kq2019_intakesum$`薏苡仁`))
+kq2019_dayssum<-reshape2::dcast(det1,
+                                Name ~  CMN,
+                                value.var = "days",sum)
+薏苡仁_kq2019_dayssum<-as.vector(as.matrix(kq2019_dayssum$`薏苡仁`))
+#合并薏苡仁的消费量和days表格
+kq2019_intakemergedays <- merge(x=kq2019_intakesum, y=kq2019_dayssum,
+                                by.x="Name",
+                                by.y="Name"
+)
+options(digits = 3)
+kq2019_intakemergedays$standard <- kq2019_intakemergedays$薏苡仁.x/kq2019_intakemergedays$薏苡仁.y
+薏苡仁_kq2019_dailyintake <- as.vector(as.matrix(kq2019_intakemergedays$standard))
+
+#将三个厂的数据结合
+colnames(hq2019_raw_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(wansc2019_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_intakemergedays,kq2019_intakemergedays)
+wansc2019_hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_kq2019_intakemergedays,wansc2019_intakemergedays)
+colnames(wansc2019_hq2019_raw_kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+write.table(wansc2019_hq2019_raw_kq2019_intakemergedays,file="D:\\A长三院\\识别号更改后\\三家药厂薏苡仁个人摄入量.csv",row.names = F,col.names = T,sep=",")
+```
+
+
+<center>
+```{r 薏苡仁 intake distribution, echo=FALSE}
+#
+options(digits=1)
+薏苡仁_wansc2019_hq2019_raw_kq2019_intakesum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$intakesum))
+年摄入量<-c(quantile(薏苡仁_wansc2019_hq2019_raw_kq2019_intakesum, probs = c(0.05,0.5,0.95)), mean(薏苡仁_wansc2019_hq2019_raw_kq2019_intakesum))
+#算摄入天数百分比
+薏苡仁_wansc2019_hq2019_raw_kq2019_dayssum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$days))
+摄入天数 <- c(quantile(薏苡仁_wansc2019_hq2019_raw_kq2019_dayssum, probs = c(0.05,0.5,0.95)), mean(薏苡仁_wansc2019_hq2019_raw_kq2019_dayssum))
+#算每日摄入量百分比
+薏苡仁_wansc2019_hq2019_raw_kq2019_dailyintake <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$standard))
+每日摄入量 <- c(quantile(薏苡仁_wansc2019_hq2019_raw_kq2019_dailyintake, probs = c(0.05,0.5,0.95)), mean(薏苡仁_hq2019_raw_dailyintake))
+#作薏苡仁摄入量分布图
+hist(薏苡仁_wansc2019_hq2019_raw_kq2019_intakesum,
+        main="",
+        xlab="薏苡仁(g)",ylab="Frequency",
+        col = "#56B4E9",border = TRUE,cex.axis=0.7,cex.lab=0.7,
+        xlim=c(0,2*年摄入量[3]),ylim=c(0,max(table(薏苡仁_wansc2019_hq2019_raw_kq2019_intakesum))*2),
+        breaks = 年摄入量[3]/10)
+#画直线
+
+abline(v = 年摄入量,lty = 3,lwd = 2,col=c("green","yellow","red","orange"))
+#加标注
+A4<-paste(c("p5     ","p50   ","p95   ","mean"),
+          c(round(年摄入量[1:2],4),round(年摄入量[3],4),round(年摄入量[4],0)),
+          sep=":")
+legend("topright",legend=A4, 
+       col=c("green","yellow","red","orange"),lty=c(2,2,2,2),lwd=c(2,2,2,2),cex=0.6,bty = "o")
+#线上写文字
+text(c(年摄入量[1]-2.5*年摄入量[3]/50,
+           年摄入量[2]+2.5*年摄入量[3]/30,
+           年摄入量[4]+2.5*年摄入量[3]/20,
+           年摄入量[3]-2.5*年摄入量[3]/30),
+     max(table(薏苡仁_wansc2019_hq2019_raw_kq2019_intakesum))*2,
+     c("p5","p50","mean","p95"),cex=0.7)
+```
+<center><font face="黑体" size=2>图 2 2019年上海部分饮片厂薏苡仁年摄入量总体分布图(单位：g)</center></font>
+  
+  <center><font face="黑体" size=2>表 2 2019年上海部分饮片厂饮片厂薏苡仁摄入量分布情况表</center></font>
+```{r 薏苡仁 summary , echo=FALSE}
+#生成2019年薏苡仁摄入量分布表
+options(digits=1)
+p4 <- rbind(年摄入量,摄入天数,每日摄入量)
+p4 <-t(p4)
+rownames(p4) <- c("P5","P50","P95","平均值")
+colnames(p4) <- c("年摄入量（g/y）","摄入天数（d）","每日摄入量（g/d）")
+kable(p4)%>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r 薏苡仁 export , echo=FALSE}
+paste("上海部分饮片厂2019年中药摄入量的数据中，摄入薏苡仁的人数大约为",length(wansc2019_hq2019_raw_kq2019_intakemergedays$Name),"人，2019年薏苡仁的年摄入量P50值、P95值和平均值分别为",round(p4[2,1],1),"、",round(p4[3,1],1),"和",round(p4[4,1],1), " g/y，摄入天数的P50值、P95值和平均值分别为",round(p4[2,2],1),"、",round(p4[3,2],1),"和",round(p4[4,2],1), " d，每日摄入量的P50值、P95值和平均值分别为",round(p4[2,3],1),"、",round(p4[3,3],1),"和",round(p4[4,3],1), " g/d。",sep="")
+```
+
+
+```{r 酸枣仁 data clean, echo=FALSE}
+
+# --------提取万仕城酸枣仁的数据---------
+t <- which(stringr::str_detect(wansc2019$CMN,"酸枣仁"))
+酸枣仁 <- wansc2019[t,]
+酸枣仁$DD <- as.numeric(酸枣仁$DD)
+酸枣仁$days <- as.numeric(酸枣仁$days)
+酸枣仁$ds <- 酸枣仁$DD*酸枣仁$days
+酸枣仁$ds <- as.numeric(酸枣仁$ds)
+det1<-as.data.frame(酸枣仁[,c("ID_Name","ds","CMN","days")])
+#生成ID_Name为识别号的数据框 
+wansc2019_intakesum<-reshape2::dcast(det1, 	
+                           ID_Name ~ CMN,
+                           value.var = "ds", sum)	
+酸枣仁_wansc2019_intakesum<-as.vector(as.matrix(wansc2019_intakesum$`酸枣仁`))
+wansc2019_dayssum<-reshape2::dcast(det1,
+                      ID_Name ~  CMN,
+                      value.var = "days",sum)
+酸枣仁_wansc2019_dayssum<-as.vector(as.matrix(wansc2019_dayssum$`酸枣仁`))
+#合并酸枣仁的消费量和days表格
+wansc2019_intakemergedays <- merge(x=wansc2019_intakesum, y=wansc2019_dayssum,
+                         by.x="ID_Name",
+                         by.y="ID_Name"
+)
+options(digits = 3)
+wansc2019_intakemergedays$standard <- wansc2019_intakemergedays$酸枣仁.x/wansc2019_intakemergedays$酸枣仁.y
+酸枣仁_dailyintake <- as.vector(as.matrix(wansc2019_intakemergedays$standard))
+
+#--------提取虹桥酸枣仁的数据---------
+酸枣仁 <- hq2019_raw[hq2019_raw$CMN =="酸枣仁",]
+酸枣仁$DD <- as.numeric(酸枣仁$DD)
+酸枣仁$days <- as.numeric(酸枣仁$days)
+酸枣仁$total <- 酸枣仁$DD*酸枣仁$days
+酸枣仁$total <- as.numeric(酸枣仁$total)
+det1<-as.data.frame(酸枣仁[,c("H_Name","total","CMN","days")])
+#生成H_Name为识别号的数据框
+hq2019_raw_intakesum<-reshape2::dcast(det1, 	
+                                  H_Name ~ CMN,
+                                  value.var = "total", sum)	
+酸枣仁_hq2019_raw_intakesum<-as.vector(as.matrix(hq2019_raw_intakesum$`酸枣仁`))
+hq2019_raw_dayssum<-reshape2::dcast(det1,
+                                H_Name ~  CMN,
+                                value.var = "days",sum)
+酸枣仁_hq2019_raw_dayssum<-as.vector(as.matrix(hq2019_raw_dayssum$`酸枣仁`))
+#合并酸枣仁的消费量和days表格
+hq2019_raw_intakemergedays <- merge(x=hq2019_raw_intakesum, y=hq2019_raw_dayssum,
+                                by.x="H_Name",
+                                by.y="H_Name"
+)
+options(digits = 3)
+hq2019_raw_intakemergedays$standard <- hq2019_raw_intakemergedays$酸枣仁.x/hq2019_raw_intakemergedays$酸枣仁.y
+酸枣仁_hq2019_raw_dailyintake <- as.vector(as.matrix(hq2019_raw_intakemergedays$standard))
+
+#--------提取康桥酸枣仁的数据---------
+酸枣仁 <- kq2019[kq2019$CMN =="酸枣仁",]
+酸枣仁$DD <- as.numeric(酸枣仁$DD)
+酸枣仁$days <- as.numeric(酸枣仁$days)
+酸枣仁$total <- 酸枣仁$DD*酸枣仁$days
+酸枣仁$total <- as.numeric(酸枣仁$total)
+det1<-as.data.frame(酸枣仁[,c("Name","total","CMN","days")])
+#生成Name为识别号的数据框
+kq2019_intakesum<-reshape2::dcast(det1, 	
+                                  Name ~ CMN,
+                                  value.var = "total", sum)	
+酸枣仁_kq2019_intakesum<-as.vector(as.matrix(kq2019_intakesum$`酸枣仁`))
+kq2019_dayssum<-reshape2::dcast(det1,
+                                Name ~  CMN,
+                                value.var = "days",sum)
+酸枣仁_kq2019_dayssum<-as.vector(as.matrix(kq2019_dayssum$`酸枣仁`))
+#合并酸枣仁的消费量和days表格
+kq2019_intakemergedays <- merge(x=kq2019_intakesum, y=kq2019_dayssum,
+                                by.x="Name",
+                                by.y="Name"
+)
+options(digits = 3)
+kq2019_intakemergedays$standard <- kq2019_intakemergedays$酸枣仁.x/kq2019_intakemergedays$酸枣仁.y
+酸枣仁_kq2019_dailyintake <- as.vector(as.matrix(kq2019_intakemergedays$standard))
+
+#将三个厂的数据结合
+colnames(hq2019_raw_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(wansc2019_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_intakemergedays,kq2019_intakemergedays)
+wansc2019_hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_kq2019_intakemergedays,wansc2019_intakemergedays)
+colnames(wansc2019_hq2019_raw_kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+write.table(wansc2019_hq2019_raw_kq2019_intakemergedays,file="D:\\A长三院\\识别号更改后\\三家药厂酸枣仁个人摄入量.csv",row.names = F,col.names = T,sep=",")
+```
+
+
+<center>
+```{r 酸枣仁 intake distribution, echo=FALSE}
+#算年摄入量百分比
+options(digits=1)
+酸枣仁_wansc2019_hq2019_raw_kq2019_intakesum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$intakesum))
+年摄入量<-c(quantile(酸枣仁_wansc2019_hq2019_raw_kq2019_intakesum, probs = c(0.05,0.5,0.95)), mean(酸枣仁_wansc2019_hq2019_raw_kq2019_intakesum))
+#算摄入天数百分比
+酸枣仁_wansc2019_hq2019_raw_kq2019_dayssum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$days))
+摄入天数 <- c(quantile(酸枣仁_wansc2019_hq2019_raw_kq2019_dayssum, probs = c(0.05,0.5,0.95)), mean(酸枣仁_wansc2019_hq2019_raw_kq2019_dayssum))
+#算每日摄入量百分比
+酸枣仁_wansc2019_hq2019_raw_kq2019_dailyintake <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$standard))
+每日摄入量 <- c(quantile(酸枣仁_wansc2019_hq2019_raw_kq2019_dailyintake, probs = c(0.05,0.5,0.95)), mean(酸枣仁_hq2019_raw_dailyintake))
+#作酸枣仁摄入量分布图
+hist(酸枣仁_wansc2019_hq2019_raw_kq2019_intakesum,
+        main="",
+        xlab="酸枣仁(g)",ylab="Frequency",
+        col = "#56B4E9",border = TRUE,cex.axis=0.7,cex.lab=0.7,
+        xlim=c(0,2*年摄入量[3]),ylim=c(0,max(table(酸枣仁_wansc2019_hq2019_raw_kq2019_intakesum))*2),
+        breaks = 年摄入量[3]/10)
+#画直线
+
+abline(v = 年摄入量,lty = 3,lwd = 2,col=c("green","yellow","red","orange"))
+#加标注
+A4<-paste(c("p5     ","p50   ","p95   ","mean"),
+          c(round(年摄入量[1:2],4),round(年摄入量[3],4),round(年摄入量[4],0)),
+          sep=":")
+legend("topright",legend=A4, 
+       col=c("green","yellow","red","orange"),lty=c(2,2,2,2),lwd=c(2,2,2,2),cex=0.6,bty = "o")
+#线上写文字
+text(c(年摄入量[1]-2.5*年摄入量[3]/50,
+           年摄入量[2]+2.5*年摄入量[3]/30,
+           年摄入量[4]+2.5*年摄入量[3]/20,
+           年摄入量[3]-2.5*年摄入量[3]/30),
+     max(table(酸枣仁_wansc2019_hq2019_raw_kq2019_intakesum))*2,
+     c("p5","p50","mean","p95"),cex=0.7)
+```
+<center><font face="黑体" size=2>图 3 2019年上海部分饮片厂酸枣仁年摄入量总体分布图(单位：g)</center></font>
+  
+  <center><font face="黑体" size=2>表 3 2019年上海部分饮片厂饮片厂酸枣仁摄入量分布情况表</center></font>
+```{r 酸枣仁 summary , echo=FALSE}
+#生成2019年酸枣仁摄入量分布表
+options(digits=1)
+p4 <- rbind(年摄入量,摄入天数,每日摄入量)
+p4 <-t(p4)
+rownames(p4) <- c("P5","P50","P95","平均值")
+colnames(p4) <- c("年摄入量（g/y）","摄入天数（d）","每日摄入量（g/d）")
+kable(p4)%>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r 酸枣仁 export , echo=FALSE}
+paste("上海部分饮片厂2019年中药摄入量的数据中，摄入酸枣仁的人数大约为",length(wansc2019_hq2019_raw_kq2019_intakemergedays$Name),"人，2019年酸枣仁的年摄入量P50值、P95值和平均值分别为",round(p4[2,1],1),"、",round(p4[3,1],1),"和",round(p4[4,1],1), " g/y，摄入天数的P50值、P95值和平均值分别为",round(p4[2,2],1),"、",round(p4[3,2],1),"和",round(p4[4,2],1), " d，每日摄入量的P50值、P95值和平均值分别为",round(p4[2,3],1),"、",round(p4[3,3],1),"和",round(p4[4,3],1), " g/d。",sep="")
+```
+
+
+
+```{r 白术 data clean, echo=FALSE}
+
+# --------提取万仕城白术的数据---------
+t <- which(stringr::str_detect(wansc2019$CMN,"白术"))
+白术 <- wansc2019[t,]
+白术$DD <- as.numeric(白术$DD)
+白术$days <- as.numeric(白术$days)
+白术$ds <- 白术$DD*白术$days
+白术$ds <- as.numeric(白术$ds)
+det1<-as.data.frame(白术[,c("ID_Name","ds","CMN","days")])
+#生成ID_Name为识别号的数据框 
+wansc2019_intakesum<-reshape2::dcast(det1, 	
+                           ID_Name ~ CMN,
+                           value.var = "ds", sum)	
+白术_wansc2019_intakesum<-as.vector(as.matrix(wansc2019_intakesum$`白术`))
+wansc2019_dayssum<-reshape2::dcast(det1,
+                      ID_Name ~  CMN,
+                      value.var = "days",sum)
+白术_wansc2019_dayssum<-as.vector(as.matrix(wansc2019_dayssum$`白术`))
+#合并白术的消费量和days表格
+wansc2019_intakemergedays <- merge(x=wansc2019_intakesum, y=wansc2019_dayssum,
+                         by.x="ID_Name",
+                         by.y="ID_Name"
+)
+options(digits = 3)
+wansc2019_intakemergedays$standard <- wansc2019_intakemergedays$白术.x/wansc2019_intakemergedays$白术.y
+白术_dailyintake <- as.vector(as.matrix(wansc2019_intakemergedays$standard))
+
+#--------提取虹桥白术的数据---------
+白术 <- hq2019_raw[hq2019_raw$CMN =="白术",]
+白术$DD <- as.numeric(白术$DD)
+白术$days <- as.numeric(白术$days)
+白术$total <- 白术$DD*白术$days
+白术$total <- as.numeric(白术$total)
+det1<-as.data.frame(白术[,c("H_Name","total","CMN","days")])
+#生成H_Name为识别号的数据框
+hq2019_raw_intakesum<-reshape2::dcast(det1, 	
+                                  H_Name ~ CMN,
+                                  value.var = "total", sum)	
+白术_hq2019_raw_intakesum<-as.vector(as.matrix(hq2019_raw_intakesum$`白术`))
+hq2019_raw_dayssum<-reshape2::dcast(det1,
+                                H_Name ~  CMN,
+                                value.var = "days",sum)
+白术_hq2019_raw_dayssum<-as.vector(as.matrix(hq2019_raw_dayssum$`白术`))
+#合并白术的消费量和days表格
+hq2019_raw_intakemergedays <- merge(x=hq2019_raw_intakesum, y=hq2019_raw_dayssum,
+                                by.x="H_Name",
+                                by.y="H_Name"
+)
+options(digits = 3)
+hq2019_raw_intakemergedays$standard <- hq2019_raw_intakemergedays$白术.x/hq2019_raw_intakemergedays$白术.y
+白术_hq2019_raw_dailyintake <- as.vector(as.matrix(hq2019_raw_intakemergedays$standard))
+
+#--------提取康桥白术的数据---------
+白术 <- kq2019[kq2019$CMN =="白术",]
+白术$DD <- as.numeric(白术$DD)
+白术$days <- as.numeric(白术$days)
+白术$total <- 白术$DD*白术$days
+白术$total <- as.numeric(白术$total)
+det1<-as.data.frame(白术[,c("Name","total","CMN","days")])
+#生成Name为识别号的数据框
+kq2019_intakesum<-reshape2::dcast(det1, 	
+                                  Name ~ CMN,
+                                  value.var = "total", sum)	
+白术_kq2019_intakesum<-as.vector(as.matrix(kq2019_intakesum$`白术`))
+kq2019_dayssum<-reshape2::dcast(det1,
+                                Name ~  CMN,
+                                value.var = "days",sum)
+白术_kq2019_dayssum<-as.vector(as.matrix(kq2019_dayssum$`白术`))
+#合并白术的消费量和days表格
+kq2019_intakemergedays <- merge(x=kq2019_intakesum, y=kq2019_dayssum,
+                                by.x="Name",
+                                by.y="Name"
+)
+options(digits = 3)
+kq2019_intakemergedays$standard <- kq2019_intakemergedays$白术.x/kq2019_intakemergedays$白术.y
+白术_kq2019_dailyintake <- as.vector(as.matrix(kq2019_intakemergedays$standard))
+
+#将三个厂的数据结合
+colnames(hq2019_raw_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(wansc2019_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_intakemergedays,kq2019_intakemergedays)
+wansc2019_hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_kq2019_intakemergedays,wansc2019_intakemergedays)
+colnames(wansc2019_hq2019_raw_kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+write.table(wansc2019_hq2019_raw_kq2019_intakemergedays,file="D:\\A长三院\\识别号更改后\\三家药厂白术个人摄入量.csv",row.names = F,col.names = T,sep=",")
+```
+
+
+<center>
+```{r 白术 intake distribution, echo=FALSE}
+#
+options(digits=1)
+白术_wansc2019_hq2019_raw_kq2019_intakesum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$intakesum))
+年摄入量<-c(quantile(白术_wansc2019_hq2019_raw_kq2019_intakesum, probs = c(0.05,0.5,0.95)), mean(白术_wansc2019_hq2019_raw_kq2019_intakesum))
+#算摄入天数百分比
+白术_wansc2019_hq2019_raw_kq2019_dayssum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$days))
+摄入天数 <- c(quantile(白术_wansc2019_hq2019_raw_kq2019_dayssum, probs = c(0.05,0.5,0.95)), mean(白术_wansc2019_hq2019_raw_kq2019_dayssum))
+#算每日摄入量百分比
+白术_wansc2019_hq2019_raw_kq2019_dailyintake <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$standard))
+每日摄入量 <- c(quantile(白术_wansc2019_hq2019_raw_kq2019_dailyintake, probs = c(0.05,0.5,0.95)), mean(白术_hq2019_raw_dailyintake))
+#作白术摄入量分布图
+hist(白术_wansc2019_hq2019_raw_kq2019_intakesum,
+        main="",
+        xlab="白术(g)",ylab="Frequency",
+        col = "#56B4E9",border = TRUE,cex.axis=0.7,cex.lab=0.7,
+        xlim=c(0,2*年摄入量[3]),ylim=c(0,max(table(白术_wansc2019_hq2019_raw_kq2019_intakesum))*2),
+        breaks = 年摄入量[3]/10)
+#画直线
+
+abline(v = 年摄入量,lty = 3,lwd = 2,col=c("green","yellow","red","orange"))
+#加标注
+A4<-paste(c("p5     ","p50   ","p95   ","mean"),
+          c(round(年摄入量[1:2],4),round(年摄入量[3],4),round(年摄入量[4],0)),
+          sep=":")
+legend("topright",legend=A4, 
+       col=c("green","yellow","red","orange"),lty=c(2,2,2,2),lwd=c(2,2,2,2),cex=0.6,bty = "o")
+#线上写文字
+text(c(年摄入量[1]-2.5*年摄入量[3]/50,
+           年摄入量[2]+2.5*年摄入量[3]/30,
+           年摄入量[4]+2.5*年摄入量[3]/20,
+           年摄入量[3]-2.5*年摄入量[3]/30),
+     max(table(白术_wansc2019_hq2019_raw_kq2019_intakesum))*2,
+     c("p5","p50","mean","p95"),cex=0.7)
+```
+<center><font face="黑体" size=2>图 4 2019年上海部分饮片厂白术年摄入量总体分布图(单位：g)</center></font>
+  
+  <center><font face="黑体" size=2>表 4 2019年上海部分饮片厂饮片厂白术摄入量分布情况表</center></font>
+```{r 白术 summary , echo=FALSE}
+#生成2019年白术摄入量分布表
+options(digits=1)
+p4 <- rbind(年摄入量,摄入天数,每日摄入量)
+p4 <-t(p4)
+rownames(p4) <- c("P5","P50","P95","平均值")
+colnames(p4) <- c("年摄入量（g/y）","摄入天数（d）","每日摄入量（g/d）")
+kable(p4)%>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r 白术 export , echo=FALSE}
+paste("上海部分饮片厂2019年中药摄入量的数据中，摄入白术的人数大约为",length(wansc2019_hq2019_raw_kq2019_intakemergedays$Name),"人，2019年白术的年摄入量P50值、P95值和平均值分别为",round(p4[2,1],1),"、",round(p4[3,1],1),"和",round(p4[4,1],1), " g/y，摄入天数的P50值、P95值和平均值分别为",round(p4[2,2],1),"、",round(p4[3,2],1),"和",round(p4[4,2],1), " d，每日摄入量的P50值、P95值和平均值分别为",round(p4[2,3],1),"、",round(p4[3,3],1),"和",round(p4[4,3],1), " g/d。",sep="")
+```
+
+
+
+
+```{r 三七 data clean, echo=FALSE}
+
+# --------提取万仕城三七的数据---------
+t <- which(stringr::str_detect(wansc2019$CMN,"三七"))
+三七 <- wansc2019[t,]
+三七$DD <- as.numeric(三七$DD)
+三七$days <- as.numeric(三七$days)
+三七$ds <- 三七$DD*三七$days
+三七$ds <- as.numeric(三七$ds)
+det1<-as.data.frame(三七[,c("ID_Name","ds","CMN","days")])
+#生成ID_Name为识别号的数据框 
+wansc2019_intakesum<-reshape2::dcast(det1, 	
+                           ID_Name ~ CMN,
+                           value.var = "ds", sum)	
+三七_wansc2019_intakesum<-as.vector(as.matrix(wansc2019_intakesum$`三七`))
+wansc2019_dayssum<-reshape2::dcast(det1,
+                      ID_Name ~  CMN,
+                      value.var = "days",sum)
+三七_wansc2019_dayssum<-as.vector(as.matrix(wansc2019_dayssum$`三七`))
+#合并三七的消费量和days表格
+wansc2019_intakemergedays <- merge(x=wansc2019_intakesum, y=wansc2019_dayssum,
+                         by.x="ID_Name",
+                         by.y="ID_Name"
+)
+options(digits = 3)
+wansc2019_intakemergedays$standard <- wansc2019_intakemergedays$三七.x/wansc2019_intakemergedays$三七.y
+三七_dailyintake <- as.vector(as.matrix(wansc2019_intakemergedays$standard))
+
+#--------提取虹桥三七的数据---------
+三七 <- hq2019_raw[hq2019_raw$CMN =="三七",]
+三七$DD <- as.numeric(三七$DD)
+三七$days <- as.numeric(三七$days)
+三七$total <- 三七$DD*三七$days
+三七$total <- as.numeric(三七$total)
+det1<-as.data.frame(三七[,c("H_Name","total","CMN","days")])
+#生成H_Name为识别号的数据框
+hq2019_raw_intakesum<-reshape2::dcast(det1, 	
+                                  H_Name ~ CMN,
+                                  value.var = "total", sum)	
+三七_hq2019_raw_intakesum<-as.vector(as.matrix(hq2019_raw_intakesum$`三七`))
+hq2019_raw_dayssum<-reshape2::dcast(det1,
+                                H_Name ~  CMN,
+                                value.var = "days",sum)
+三七_hq2019_raw_dayssum<-as.vector(as.matrix(hq2019_raw_dayssum$`三七`))
+#合并三七的消费量和days表格
+hq2019_raw_intakemergedays <- merge(x=hq2019_raw_intakesum, y=hq2019_raw_dayssum,
+                                by.x="H_Name",
+                                by.y="H_Name"
+)
+options(digits = 3)
+hq2019_raw_intakemergedays$standard <- hq2019_raw_intakemergedays$三七.x/hq2019_raw_intakemergedays$三七.y
+三七_hq2019_raw_dailyintake <- as.vector(as.matrix(hq2019_raw_intakemergedays$standard))
+
+#--------提取康桥三七的数据---------
+三七 <- kq2019[kq2019$CMN =="三七",]
+三七$DD <- as.numeric(三七$DD)
+三七$days <- as.numeric(三七$days)
+三七$total <- 三七$DD*三七$days
+三七$total <- as.numeric(三七$total)
+det1<-as.data.frame(三七[,c("Name","total","CMN","days")])
+#生成Name为识别号的数据框
+kq2019_intakesum<-reshape2::dcast(det1, 	
+                                  Name ~ CMN,
+                                  value.var = "total", sum)	
+三七_kq2019_intakesum<-as.vector(as.matrix(kq2019_intakesum$`三七`))
+kq2019_dayssum<-reshape2::dcast(det1,
+                                Name ~  CMN,
+                                value.var = "days",sum)
+三七_kq2019_dayssum<-as.vector(as.matrix(kq2019_dayssum$`三七`))
+#合并三七的消费量和days表格
+kq2019_intakemergedays <- merge(x=kq2019_intakesum, y=kq2019_dayssum,
+                                by.x="Name",
+                                by.y="Name"
+)
+options(digits = 3)
+kq2019_intakemergedays$standard <- kq2019_intakemergedays$三七.x/kq2019_intakemergedays$三七.y
+三七_kq2019_dailyintake <- as.vector(as.matrix(kq2019_intakemergedays$standard))
+
+#将三个厂的数据结合
+colnames(hq2019_raw_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(wansc2019_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_intakemergedays,kq2019_intakemergedays)
+wansc2019_hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_kq2019_intakemergedays,wansc2019_intakemergedays)
+colnames(wansc2019_hq2019_raw_kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+write.table(wansc2019_hq2019_raw_kq2019_intakemergedays,file="D:\\A长三院\\识别号更改后\\三家药厂三七个人摄入量.csv",row.names = F,col.names = T,sep=",")
+```
+
+
+<center>
+```{r 三七 intake distribution, echo=FALSE}
+#算年摄入量百分比
+options(digits=1)
+三七_wansc2019_hq2019_raw_kq2019_intakesum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$intakesum))
+年摄入量<-c(quantile(三七_wansc2019_hq2019_raw_kq2019_intakesum, probs = c(0.05,0.5,0.95)), mean(三七_wansc2019_hq2019_raw_kq2019_intakesum))
+#算摄入天数百分比
+三七_wansc2019_hq2019_raw_kq2019_dayssum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$days))
+摄入天数 <- c(quantile(三七_wansc2019_hq2019_raw_kq2019_dayssum, probs = c(0.05,0.5,0.95)), mean(三七_wansc2019_hq2019_raw_kq2019_dayssum))
+#算每日摄入量百分比
+三七_wansc2019_hq2019_raw_kq2019_dailyintake <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$standard))
+每日摄入量 <- c(quantile(三七_wansc2019_hq2019_raw_kq2019_dailyintake, probs = c(0.05,0.5,0.95)), mean(三七_hq2019_raw_dailyintake))
+#作三七摄入量分布图
+hist(三七_wansc2019_hq2019_raw_kq2019_intakesum,
+        main="",
+        xlab="三七(g)",ylab="Frequency",
+        col = "#56B4E9",border = TRUE,cex.axis=0.7,cex.lab=0.7,
+        xlim=c(0,2*年摄入量[3]),ylim=c(0,max(table(三七_wansc2019_hq2019_raw_kq2019_intakesum))*2),
+        breaks = 年摄入量[3]/10)
+#画直线
+
+abline(v = 年摄入量,lty = 3,lwd = 2,col=c("green","yellow","red","orange"))
+#加标注
+A4<-paste(c("p5     ","p50   ","p95   ","mean"),
+          c(round(年摄入量[1:2],4),round(年摄入量[3],4),round(年摄入量[4],0)),
+          sep=":")
+legend("topright",legend=A4, 
+       col=c("green","yellow","red","orange"),lty=c(2,2,2,2),lwd=c(2,2,2,2),cex=0.6,bty = "o")
+#线上写文字
+text(c(年摄入量[1]-2.5*年摄入量[3]/50,
+           年摄入量[2]+2.5*年摄入量[3]/30,
+           年摄入量[4]+2.5*年摄入量[3]/20,
+           年摄入量[3]-2.5*年摄入量[3]/30),
+     max(table(三七_wansc2019_hq2019_raw_kq2019_intakesum))*2,
+     c("p5","p50","mean","p95"),cex=0.7)
+```
+<center><font face="黑体" size=2>图 5 2019年上海部分饮片厂三七年摄入量总体分布图(单位：g)</center></font>
+  
+  <center><font face="黑体" size=2>表 5 2019年上海部分饮片厂饮片厂三七摄入量分布情况表</center></font>
+```{r 三七 summary , echo=FALSE}
+#生成2019年三七摄入量分布表
+options(digits=1)
+p4 <- rbind(年摄入量,摄入天数,每日摄入量)
+p4 <-t(p4)
+rownames(p4) <- c("P5","P50","P95","平均值")
+colnames(p4) <- c("年摄入量（g/y）","摄入天数（d）","每日摄入量（g/d）")
+kable(p4)%>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r 三七 export , echo=FALSE}
+paste("上海部分饮片厂2019年中药摄入量的数据中，摄入三七的人数大约为",length(wansc2019_hq2019_raw_kq2019_intakemergedays$Name),"人，2019年三七的年摄入量P50值、P95值和平均值分别为",round(p4[2,1],1),"、",round(p4[3,1],1),"和",round(p4[4,1],1), " g/y，摄入天数的P50值、P95值和平均值分别为",round(p4[2,2],1),"、",round(p4[3,2],1),"和",round(p4[4,2],1), " d，每日摄入量的P50值、P95值和平均值分别为",round(p4[2,3],1),"、",round(p4[3,3],1),"和",round(p4[4,3],1), " g/d。",sep="")
+```
+
+
+```{r 丹参 data clean, echo=FALSE}
+
+# --------提取万仕城丹参的数据---------
+t <- which(stringr::str_detect(wansc2019$CMN,"丹参"))
+丹参 <- wansc2019[t,]
+丹参$DD <- as.numeric(丹参$DD)
+丹参$days <- as.numeric(丹参$days)
+丹参$ds <- 丹参$DD*丹参$days
+丹参$ds <- as.numeric(丹参$ds)
+det1<-as.data.frame(丹参[,c("ID_Name","ds","CMN","days")])
+#生成ID_Name为识别号的数据框 
+wansc2019_intakesum<-reshape2::dcast(det1, 	
+                           ID_Name ~ CMN,
+                           value.var = "ds", sum)	
+丹参_wansc2019_intakesum<-as.vector(as.matrix(wansc2019_intakesum$`丹参`))
+wansc2019_dayssum<-reshape2::dcast(det1,
+                      ID_Name ~  CMN,
+                      value.var = "days",sum)
+丹参_wansc2019_dayssum<-as.vector(as.matrix(wansc2019_dayssum$`丹参`))
+#合并丹参的消费量和days表格
+wansc2019_intakemergedays <- merge(x=wansc2019_intakesum, y=wansc2019_dayssum,
+                         by.x="ID_Name",
+                         by.y="ID_Name"
+)
+options(digits = 3)
+wansc2019_intakemergedays$standard <- wansc2019_intakemergedays$丹参.x/wansc2019_intakemergedays$丹参.y
+丹参_dailyintake <- as.vector(as.matrix(wansc2019_intakemergedays$standard))
+
+#--------提取虹桥丹参的数据---------
+丹参 <- hq2019_raw[hq2019_raw$CMN =="丹参",]
+丹参$DD <- as.numeric(丹参$DD)
+丹参$days <- as.numeric(丹参$days)
+丹参$total <- 丹参$DD*丹参$days
+丹参$total <- as.numeric(丹参$total)
+det1<-as.data.frame(丹参[,c("H_Name","total","CMN","days")])
+#生成H_Name为识别号的数据框
+hq2019_raw_intakesum<-reshape2::dcast(det1, 	
+                                  H_Name ~ CMN,
+                                  value.var = "total", sum)	
+丹参_hq2019_raw_intakesum<-as.vector(as.matrix(hq2019_raw_intakesum$`丹参`))
+hq2019_raw_dayssum<-reshape2::dcast(det1,
+                                H_Name ~  CMN,
+                                value.var = "days",sum)
+丹参_hq2019_raw_dayssum<-as.vector(as.matrix(hq2019_raw_dayssum$`丹参`))
+#合并丹参的消费量和days表格
+hq2019_raw_intakemergedays <- merge(x=hq2019_raw_intakesum, y=hq2019_raw_dayssum,
+                                by.x="H_Name",
+                                by.y="H_Name"
+)
+options(digits = 3)
+hq2019_raw_intakemergedays$standard <- hq2019_raw_intakemergedays$丹参.x/hq2019_raw_intakemergedays$丹参.y
+丹参_hq2019_raw_dailyintake <- as.vector(as.matrix(hq2019_raw_intakemergedays$standard))
+
+#--------提取康桥丹参的数据---------
+丹参 <- kq2019[kq2019$CMN =="丹参",]
+丹参$DD <- as.numeric(丹参$DD)
+丹参$days <- as.numeric(丹参$days)
+丹参$total <- 丹参$DD*丹参$days
+丹参$total <- as.numeric(丹参$total)
+det1<-as.data.frame(丹参[,c("Name","total","CMN","days")])
+#生成Name为识别号的数据框
+kq2019_intakesum<-reshape2::dcast(det1, 	
+                                  Name ~ CMN,
+                                  value.var = "total", sum)	
+丹参_kq2019_intakesum<-as.vector(as.matrix(kq2019_intakesum$`丹参`))
+kq2019_dayssum<-reshape2::dcast(det1,
+                                Name ~  CMN,
+                                value.var = "days",sum)
+丹参_kq2019_dayssum<-as.vector(as.matrix(kq2019_dayssum$`丹参`))
+#合并丹参的消费量和days表格
+kq2019_intakemergedays <- merge(x=kq2019_intakesum, y=kq2019_dayssum,
+                                by.x="Name",
+                                by.y="Name"
+)
+options(digits = 3)
+kq2019_intakemergedays$standard <- kq2019_intakemergedays$丹参.x/kq2019_intakemergedays$丹参.y
+丹参_kq2019_dailyintake <- as.vector(as.matrix(kq2019_intakemergedays$standard))
+
+#将三个厂的数据结合
+colnames(hq2019_raw_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(wansc2019_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_intakemergedays,kq2019_intakemergedays)
+wansc2019_hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_kq2019_intakemergedays,wansc2019_intakemergedays)
+colnames(wansc2019_hq2019_raw_kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+write.table(wansc2019_hq2019_raw_kq2019_intakemergedays,file="D:\\A长三院\\识别号更改后\\三家药厂丹参个人摄入量.csv",row.names = F,col.names = T,sep=",")
+```
+
+
+<center>
+```{r 丹参 intake distribution, echo=FALSE}
+#
+options(digits=1)
+丹参_wansc2019_hq2019_raw_kq2019_intakesum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$intakesum))
+年摄入量<-c(quantile(丹参_wansc2019_hq2019_raw_kq2019_intakesum, probs = c(0.05,0.5,0.95)), mean(丹参_wansc2019_hq2019_raw_kq2019_intakesum))
+#算摄入天数百分比
+丹参_wansc2019_hq2019_raw_kq2019_dayssum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$days))
+摄入天数 <- c(quantile(丹参_wansc2019_hq2019_raw_kq2019_dayssum, probs = c(0.05,0.5,0.95)), mean(丹参_wansc2019_hq2019_raw_kq2019_dayssum))
+#算每日摄入量百分比
+丹参_wansc2019_hq2019_raw_kq2019_dailyintake <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$standard))
+每日摄入量 <- c(quantile(丹参_wansc2019_hq2019_raw_kq2019_dailyintake, probs = c(0.05,0.5,0.95)), mean(丹参_hq2019_raw_dailyintake))
+#作丹参摄入量分布图
+hist(丹参_wansc2019_hq2019_raw_kq2019_intakesum,
+        main="",
+        xlab="丹参(g)",ylab="Frequency",
+        col = "#56B4E9",border = TRUE,cex.axis=0.7,cex.lab=0.7,
+        xlim=c(0,2*年摄入量[3]),ylim=c(0,max(table(丹参_wansc2019_hq2019_raw_kq2019_intakesum))*2),
+        breaks = 年摄入量[3]/10)
+#画直线
+
+abline(v = 年摄入量,lty = 3,lwd = 2,col=c("green","yellow","red","orange"))
+#加标注
+A4<-paste(c("p5     ","p50   ","p95   ","mean"),
+          c(round(年摄入量[1:2],4),round(年摄入量[3],4),round(年摄入量[4],0)),
+          sep=":")
+legend("topright",legend=A4, 
+       col=c("green","yellow","red","orange"),lty=c(2,2,2,2),lwd=c(2,2,2,2),cex=0.6,bty = "o")
+#线上写文字
+text(c(年摄入量[1]-2.5*年摄入量[3]/50,
+           年摄入量[2]+2.5*年摄入量[3]/30,
+           年摄入量[4]+2.5*年摄入量[3]/20,
+           年摄入量[3]-2.5*年摄入量[3]/30),
+     max(table(丹参_wansc2019_hq2019_raw_kq2019_intakesum))*2,
+     c("p5","p50","mean","p95"),cex=0.7)
+```
+<center><font face="黑体" size=2>图 6 2019年上海部分饮片厂丹参年摄入量总体分布图(单位：g)</center></font>
+  
+  <center><font face="黑体" size=2>表 6 2019年上海部分饮片厂饮片厂丹参摄入量分布情况表</center></font>
+```{r 丹参 summary , echo=FALSE}
+#生成2019年丹参摄入量分布表
+options(digits=1)
+p4 <- rbind(年摄入量,摄入天数,每日摄入量)
+p4 <-t(p4)
+rownames(p4) <- c("P5","P50","P95","平均值")
+colnames(p4) <- c("年摄入量（g/y）","摄入天数（d）","每日摄入量（g/d）")
+kable(p4)%>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r 丹参 export , echo=FALSE}
+paste("上海部分饮片厂2019年中药摄入量的数据中，摄入丹参的人数大约为",length(wansc2019_hq2019_raw_kq2019_intakemergedays$Name),"人，2019年丹参的年摄入量P50值、P95值和平均值分别为",round(p4[2,1],1),"、",round(p4[3,1],1),"和",round(p4[4,1],1), " g/y，摄入天数的P50值、P95值和平均值分别为",round(p4[2,2],1),"、",round(p4[3,2],1),"和",round(p4[4,2],1), " d，每日摄入量的P50值、P95值和平均值分别为",round(p4[2,3],1),"、",round(p4[3,3],1),"和",round(p4[4,3],1), " g/d。",sep="")
+```
+
+```{r 人参 data clean, echo=FALSE}
+
+# --------提取万仕城人参的数据---------
+t <- which(stringr::str_detect(wansc2019$CMN,"人参"))
+人参 <- wansc2019[t,]
+人参$DD <- as.numeric(人参$DD)
+人参$days <- as.numeric(人参$days)
+t1 <- which(is.na(人参$DD))
+人参$ds <- 人参$DD*人参$days
+人参$ds <- as.numeric(人参$ds)
+det1<-as.data.frame(人参[,c("ID_Name","ds","CMN","days")])
+#生成ID_Name为识别号的数据框 
+wansc2019_intakesum<-reshape2::dcast(det1, 	
+                           ID_Name ~ CMN,
+                           value.var = "ds", sum)	
+人参_wansc2019_intakesum<-as.vector(as.matrix(wansc2019_intakesum$`人参`))
+wansc2019_dayssum<-reshape2::dcast(det1,
+                      ID_Name ~  CMN,
+                      value.var = "days",sum)
+人参_wansc2019_dayssum<-as.vector(as.matrix(wansc2019_dayssum$`人参`))
+#合并人参的消费量和days表格
+wansc2019_intakemergedays <- merge(x=wansc2019_intakesum, y=wansc2019_dayssum,
+                         by.x="ID_Name",
+                         by.y="ID_Name"
+)
+options(digits = 3)
+wansc2019_intakemergedays$standard <- wansc2019_intakemergedays$人参.x/wansc2019_intakemergedays$人参.y
+人参_dailyintake <- as.vector(as.matrix(wansc2019_intakemergedays$standard))
+
+#--------提取虹桥人参的数据---------
+人参 <- hq2019_raw[hq2019_raw$CMN =="人参",]
+人参$DD <- as.numeric(人参$DD)
+人参$days <- as.numeric(人参$days)
+人参$total <- 人参$DD*人参$days
+人参$total <- as.numeric(人参$total)
+det1<-as.data.frame(人参[,c("H_Name","total","CMN","days")])
+#生成H_Name为识别号的数据框
+hq2019_raw_intakesum<-reshape2::dcast(det1, 	
+                                  H_Name ~ CMN,
+                                  value.var = "total", sum)	
+人参_hq2019_raw_intakesum<-as.vector(as.matrix(hq2019_raw_intakesum$`人参`))
+hq2019_raw_dayssum<-reshape2::dcast(det1,
+                                H_Name ~  CMN,
+                                value.var = "days",sum)
+人参_hq2019_raw_dayssum<-as.vector(as.matrix(hq2019_raw_dayssum$`人参`))
+#合并人参的消费量和days表格
+hq2019_raw_intakemergedays <- merge(x=hq2019_raw_intakesum, y=hq2019_raw_dayssum,
+                                by.x="H_Name",
+                                by.y="H_Name"
+)
+options(digits = 3)
+hq2019_raw_intakemergedays$standard <- hq2019_raw_intakemergedays$人参.x/hq2019_raw_intakemergedays$人参.y
+人参_hq2019_raw_dailyintake <- as.vector(as.matrix(hq2019_raw_intakemergedays$standard))
+
+#--------提取康桥人参的数据---------
+人参 <- kq2019[kq2019$CMN =="人参",]
+人参$DD <- as.numeric(人参$DD)
+人参$days <- as.numeric(人参$days)
+人参$total <- 人参$DD*人参$days
+人参$total <- as.numeric(人参$total)
+det1<-as.data.frame(人参[,c("Name","total","CMN","days")])
+#生成Name为识别号的数据框
+kq2019_intakesum<-reshape2::dcast(det1, 	
+                                  Name ~ CMN,
+                                  value.var = "total", sum)	
+人参_kq2019_intakesum<-as.vector(as.matrix(kq2019_intakesum$`人参`))
+kq2019_dayssum<-reshape2::dcast(det1,
+                                Name ~  CMN,
+                                value.var = "days",sum)
+人参_kq2019_dayssum<-as.vector(as.matrix(kq2019_dayssum$`人参`))
+#合并人参的消费量和days表格
+kq2019_intakemergedays <- merge(x=kq2019_intakesum, y=kq2019_dayssum,
+                                by.x="Name",
+                                by.y="Name"
+)
+options(digits = 3)
+kq2019_intakemergedays$standard <- kq2019_intakemergedays$人参.x/kq2019_intakemergedays$人参.y
+人参_kq2019_dailyintake <- as.vector(as.matrix(kq2019_intakemergedays$standard))
+
+#将三个厂的数据结合
+colnames(hq2019_raw_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(wansc2019_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_intakemergedays,kq2019_intakemergedays)
+wansc2019_hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_kq2019_intakemergedays,wansc2019_intakemergedays)
+colnames(wansc2019_hq2019_raw_kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+write.table(wansc2019_hq2019_raw_kq2019_intakemergedays,file="D:\\A长三院\\识别号更改后\\三家药厂人参个人摄入量.csv",row.names = F,col.names = T,sep=",")
+```
+
+
+<center>
+```{r 人参 intake distribution, echo=FALSE}
+#
+options(digits=1)
+人参_wansc2019_hq2019_raw_kq2019_intakesum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$intakesum))
+年摄入量<-c(quantile(人参_wansc2019_hq2019_raw_kq2019_intakesum, probs = c(0.05,0.5,0.95)), mean(人参_wansc2019_hq2019_raw_kq2019_intakesum))
+#算摄入天数百分比
+人参_wansc2019_hq2019_raw_kq2019_dayssum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$days))
+摄入天数 <- c(quantile(人参_wansc2019_hq2019_raw_kq2019_dayssum, probs = c(0.05,0.5,0.95)), mean(人参_wansc2019_hq2019_raw_kq2019_dayssum))
+#算每日摄入量百分比
+人参_wansc2019_hq2019_raw_kq2019_dailyintake <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$standard))
+每日摄入量 <- c(quantile(人参_wansc2019_hq2019_raw_kq2019_dailyintake, probs = c(0.05,0.5,0.95)), mean(人参_hq2019_raw_dailyintake))
+#作人参摄入量分布图
+hist(人参_wansc2019_hq2019_raw_kq2019_intakesum,
+        main="",
+        xlab="人参(g)",ylab="Frequency",
+        col = "#56B4E9",border = TRUE,cex.axis=0.7,cex.lab=0.7,
+        xlim=c(0,2*年摄入量[3]),ylim=c(0,max(table(人参_wansc2019_hq2019_raw_kq2019_intakesum))*2),
+        breaks = 年摄入量[3]/10)
+#画直线
+
+abline(v = 年摄入量,lty = 3,lwd = 2,col=c("green","yellow","red","orange"))
+#加标注
+A4<-paste(c("p5     ","p50   ","p95   ","mean"),
+          c(round(年摄入量[1:2],4),round(年摄入量[3],4),round(年摄入量[4],0)),
+          sep=":")
+legend("topright",legend=A4, 
+       col=c("green","yellow","red","orange"),lty=c(2,2,2,2),lwd=c(2,2,2,2),cex=0.6,bty = "o")
+#线上写文字
+text(c(年摄入量[1]-2.5*年摄入量[3]/50,
+           年摄入量[2]+2.5*年摄入量[3]/30,
+           年摄入量[4]+2.5*年摄入量[3]/20,
+           年摄入量[3]-2.5*年摄入量[3]/30),
+     max(table(人参_wansc2019_hq2019_raw_kq2019_intakesum))*2,
+     c("p5","p50","mean","p95"),cex=0.7)
+```
+<center><font face="黑体" size=2>图 7 2019年上海部分饮片厂人参年摄入量总体分布图(单位：g)</center></font>
+  
+  <center><font face="黑体" size=2>表 7 2019年上海部分饮片厂饮片厂人参摄入量分布情况表</center></font>
+```{r 人参 summary , echo=FALSE}
+#生成2019年人参摄入量分布表
+options(digits=1)
+p4 <- rbind(年摄入量,摄入天数,每日摄入量)
+p4 <-t(p4)
+rownames(p4) <- c("P5","P50","P95","平均值")
+colnames(p4) <- c("年摄入量（g/y）","摄入天数（d）","每日摄入量（g/d）")
+kable(p4)%>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r 人参 export , echo=FALSE}
+paste("上海部分饮片厂2019年中药摄入量的数据中，摄入人参的人数大约为",length(wansc2019_hq2019_raw_kq2019_intakemergedays$Name),"人，2019年人参的年摄入量P50值、P95值和平均值分别为",round(p4[2,1],1),"、",round(p4[3,1],1),"和",round(p4[4,1],1), " g/y，摄入天数的P50值、P95值和平均值分别为",round(p4[2,2],1),"、",round(p4[3,2],1),"和",round(p4[4,2],1), " d，每日摄入量的P50值、P95值和平均值分别为",round(p4[2,3],1),"、",round(p4[3,3],1),"和",round(p4[4,3],1), " g/d。",sep="")
+```
+
+
+
+
+```{r 枸杞 data clean, echo=FALSE}
+
+# --------提取万仕城枸杞的数据---------
+t <- which(stringr::str_detect(wansc2019$CMN,"枸杞"))
+枸杞 <- wansc2019[t,]
+枸杞$DD <- as.numeric(枸杞$DD)
+枸杞$days <- as.numeric(枸杞$days)
+枸杞$ds <- 枸杞$DD*枸杞$days
+枸杞$ds <- as.numeric(枸杞$ds)
+det1<-as.data.frame(枸杞[,c("ID_Name","ds","CMN","days")])
+#生成ID_Name为识别号的数据框 
+wansc2019_intakesum<-reshape2::dcast(det1, 	
+                           ID_Name ~ CMN,
+                           value.var = "ds", sum)	
+枸杞_wansc2019_intakesum<-as.vector(as.matrix(wansc2019_intakesum$`枸杞`))
+wansc2019_dayssum<-reshape2::dcast(det1,
+                      ID_Name ~  CMN,
+                      value.var = "days",sum)
+枸杞_wansc2019_dayssum<-as.vector(as.matrix(wansc2019_dayssum$`枸杞`))
+#合并枸杞的消费量和days表格
+wansc2019_intakemergedays <- merge(x=wansc2019_intakesum, y=wansc2019_dayssum,
+                         by.x="ID_Name",
+                         by.y="ID_Name"
+)
+options(digits = 3)
+wansc2019_intakemergedays$standard <- wansc2019_intakemergedays$枸杞.x/wansc2019_intakemergedays$枸杞.y
+枸杞_dailyintake <- as.vector(as.matrix(wansc2019_intakemergedays$standard))
+
+#--------提取虹桥枸杞的数据---------
+枸杞 <- hq2019_raw[hq2019_raw$CMN =="枸杞",]
+枸杞$DD <- as.numeric(枸杞$DD)
+枸杞$days <- as.numeric(枸杞$days)
+枸杞$total <- 枸杞$DD*枸杞$days
+枸杞$total <- as.numeric(枸杞$total)
+det1<-as.data.frame(枸杞[,c("H_Name","total","CMN","days")])
+#生成H_Name为识别号的数据框
+hq2019_raw_intakesum<-reshape2::dcast(det1, 	
+                                  H_Name ~ CMN,
+                                  value.var = "total", sum)	
+枸杞_hq2019_raw_intakesum<-as.vector(as.matrix(hq2019_raw_intakesum$`枸杞`))
+hq2019_raw_dayssum<-reshape2::dcast(det1,
+                                H_Name ~  CMN,
+                                value.var = "days",sum)
+枸杞_hq2019_raw_dayssum<-as.vector(as.matrix(hq2019_raw_dayssum$`枸杞`))
+#合并枸杞的消费量和days表格
+hq2019_raw_intakemergedays <- merge(x=hq2019_raw_intakesum, y=hq2019_raw_dayssum,
+                                by.x="H_Name",
+                                by.y="H_Name"
+)
+options(digits = 3)
+hq2019_raw_intakemergedays$standard <- hq2019_raw_intakemergedays$枸杞.x/hq2019_raw_intakemergedays$枸杞.y
+枸杞_hq2019_raw_dailyintake <- as.vector(as.matrix(hq2019_raw_intakemergedays$standard))
+
+#--------提取康桥枸杞的数据---------
+枸杞 <- kq2019[kq2019$CMN =="枸杞",]
+枸杞$DD <- as.numeric(枸杞$DD)
+枸杞$days <- as.numeric(枸杞$days)
+枸杞$total <- 枸杞$DD*枸杞$days
+枸杞$total <- as.numeric(枸杞$total)
+det1<-as.data.frame(枸杞[,c("Name","total","CMN","days")])
+#生成Name为识别号的数据框
+kq2019_intakesum<-reshape2::dcast(det1, 	
+                                  Name ~ CMN,
+                                  value.var = "total", sum)	
+枸杞_kq2019_intakesum<-as.vector(as.matrix(kq2019_intakesum$`枸杞`))
+kq2019_dayssum<-reshape2::dcast(det1,
+                                Name ~  CMN,
+                                value.var = "days",sum)
+枸杞_kq2019_dayssum<-as.vector(as.matrix(kq2019_dayssum$`枸杞`))
+#合并枸杞的消费量和days表格
+kq2019_intakemergedays <- merge(x=kq2019_intakesum, y=kq2019_dayssum,
+                                by.x="Name",
+                                by.y="Name"
+)
+options(digits = 3)
+kq2019_intakemergedays$standard <- kq2019_intakemergedays$枸杞.x/kq2019_intakemergedays$枸杞.y
+枸杞_kq2019_dailyintake <- as.vector(as.matrix(kq2019_intakemergedays$standard))
+
+#将三个厂的数据结合
+colnames(hq2019_raw_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(wansc2019_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_intakemergedays,kq2019_intakemergedays)
+wansc2019_hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_kq2019_intakemergedays,wansc2019_intakemergedays)
+colnames(wansc2019_hq2019_raw_kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+write.table(wansc2019_hq2019_raw_kq2019_intakemergedays,file="D:\\A长三院\\识别号更改后\\三家药厂枸杞个人摄入量.csv",row.names = F,col.names = T,sep=",")
+```
+
+
+<center>
+```{r 枸杞 intake distribution, echo=FALSE}
+#
+options(digits=1)
+枸杞_wansc2019_hq2019_raw_kq2019_intakesum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$intakesum))
+年摄入量<-c(quantile(枸杞_wansc2019_hq2019_raw_kq2019_intakesum, probs = c(0.05,0.5,0.95)), mean(枸杞_wansc2019_hq2019_raw_kq2019_intakesum))
+#算摄入天数百分比
+枸杞_wansc2019_hq2019_raw_kq2019_dayssum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$days))
+摄入天数 <- c(quantile(枸杞_wansc2019_hq2019_raw_kq2019_dayssum, probs = c(0.05,0.5,0.95)), mean(枸杞_wansc2019_hq2019_raw_kq2019_dayssum))
+#算每日摄入量百分比
+枸杞_wansc2019_hq2019_raw_kq2019_dailyintake <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$standard))
+每日摄入量 <- c(quantile(枸杞_wansc2019_hq2019_raw_kq2019_dailyintake, probs = c(0.05,0.5,0.95)), mean(枸杞_hq2019_raw_dailyintake))
+#作枸杞摄入量分布图
+hist(枸杞_wansc2019_hq2019_raw_kq2019_intakesum,
+        main="",
+        xlab="枸杞(g)",ylab="Frequency",
+        col = "#56B4E9",border = TRUE,cex.axis=0.7,cex.lab=0.7,
+        xlim=c(0,2*年摄入量[3]),ylim=c(0,max(table(枸杞_wansc2019_hq2019_raw_kq2019_intakesum))*2),
+        breaks = 年摄入量[3]/10)
+#画直线
+
+abline(v = 年摄入量,lty = 3,lwd = 2,col=c("green","yellow","red","orange"))
+#加标注
+A4<-paste(c("p5     ","p50   ","p95   ","mean"),
+          c(round(年摄入量[1:2],4),round(年摄入量[3],4),round(年摄入量[4],0)),
+          sep=":")
+legend("topright",legend=A4, 
+       col=c("green","yellow","red","orange"),lty=c(2,2,2,2),lwd=c(2,2,2,2),cex=0.6,bty = "o")
+#线上写文字
+text(c(年摄入量[1]-2.5*年摄入量[3]/50,
+           年摄入量[2]+2.5*年摄入量[3]/30,
+           年摄入量[4]+2.5*年摄入量[3]/20,
+           年摄入量[3]-2.5*年摄入量[3]/30),
+     max(table(枸杞_wansc2019_hq2019_raw_kq2019_intakesum))*2,
+     c("p5","p50","mean","p95"),cex=0.7)
+```
+<center><font face="黑体" size=2>图 8 2019年上海部分饮片厂枸杞年摄入量总体分布图(单位：g)</center></font>
+  
+  <center><font face="黑体" size=2>表 8 2019年上海部分饮片厂饮片厂枸杞摄入量分布情况表</center></font>
+```{r 枸杞 summary , echo=FALSE}
+#生成2019年枸杞摄入量分布表
+options(digits=1)
+p4 <- rbind(年摄入量,摄入天数,每日摄入量)
+p4 <-t(p4)
+rownames(p4) <- c("P5","P50","P95","平均值")
+colnames(p4) <- c("年摄入量（g/y）","摄入天数（d）","每日摄入量（g/d）")
+kable(p4)%>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r 枸杞 export , echo=FALSE}
+paste("上海部分饮片厂2019年中药摄入量的数据中，摄入枸杞的人数大约为",length(wansc2019_hq2019_raw_kq2019_intakemergedays$Name),"人，2019年枸杞的年摄入量P50值、P95值和平均值分别为",round(p4[2,1],1),"、",round(p4[3,1],1),"和",round(p4[4,1],1), " g/y，摄入天数的P50值、P95值和平均值分别为",round(p4[2,2],1),"、",round(p4[3,2],1),"和",round(p4[4,2],1), " d，每日摄入量的P50值、P95值和平均值分别为",round(p4[2,3],1),"、",round(p4[3,3],1),"和",round(p4[4,3],1), " g/d。",sep="")
+```
+
+
+
+
+```{r 金银花 data clean, echo=FALSE}
+
+# --------提取万仕城金银花的数据---------
+t <- which(stringr::str_detect(wansc2019$CMN,"金银花"))
+金银花 <- wansc2019[t,]
+金银花$DD <- as.numeric(金银花$DD)
+金银花$days <- as.numeric(金银花$days)
+金银花$ds <- 金银花$DD*金银花$days
+金银花$ds <- as.numeric(金银花$ds)
+det1<-as.data.frame(金银花[,c("ID_Name","ds","CMN","days")])
+#生成ID_Name为识别号的数据框 
+wansc2019_intakesum<-reshape2::dcast(det1, 	
+                           ID_Name ~ CMN,
+                           value.var = "ds", sum)	
+金银花_wansc2019_intakesum<-as.vector(as.matrix(wansc2019_intakesum$`金银花`))
+wansc2019_dayssum<-reshape2::dcast(det1,
+                      ID_Name ~  CMN,
+                      value.var = "days",sum)
+金银花_wansc2019_dayssum<-as.vector(as.matrix(wansc2019_dayssum$`金银花`))
+#合并金银花的消费量和days表格
+wansc2019_intakemergedays <- merge(x=wansc2019_intakesum, y=wansc2019_dayssum,
+                         by.x="ID_Name",
+                         by.y="ID_Name"
+)
+options(digits = 3)
+wansc2019_intakemergedays$standard <- wansc2019_intakemergedays$金银花.x/wansc2019_intakemergedays$金银花.y
+金银花_dailyintake <- as.vector(as.matrix(wansc2019_intakemergedays$standard))
+
+#--------提取虹桥金银花的数据---------
+金银花 <- hq2019_raw[hq2019_raw$CMN =="金银花",]
+金银花$DD <- as.numeric(金银花$DD)
+金银花$days <- as.numeric(金银花$days)
+金银花$total <- 金银花$DD*金银花$days
+金银花$total <- as.numeric(金银花$total)
+det1<-as.data.frame(金银花[,c("H_Name","total","CMN","days")])
+#生成H_Name为识别号的数据框
+hq2019_raw_intakesum<-reshape2::dcast(det1, 	
+                                  H_Name ~ CMN,
+                                  value.var = "total", sum)	
+金银花_hq2019_raw_intakesum<-as.vector(as.matrix(hq2019_raw_intakesum$`金银花`))
+hq2019_raw_dayssum<-reshape2::dcast(det1,
+                                H_Name ~  CMN,
+                                value.var = "days",sum)
+金银花_hq2019_raw_dayssum<-as.vector(as.matrix(hq2019_raw_dayssum$`金银花`))
+#合并金银花的消费量和days表格
+hq2019_raw_intakemergedays <- merge(x=hq2019_raw_intakesum, y=hq2019_raw_dayssum,
+                                by.x="H_Name",
+                                by.y="H_Name"
+)
+options(digits = 3)
+hq2019_raw_intakemergedays$standard <- hq2019_raw_intakemergedays$金银花.x/hq2019_raw_intakemergedays$金银花.y
+金银花_hq2019_raw_dailyintake <- as.vector(as.matrix(hq2019_raw_intakemergedays$standard))
+
+#--------提取康桥金银花的数据---------
+金银花 <- kq2019[kq2019$CMN =="金银花",]
+金银花$DD <- as.numeric(金银花$DD)
+金银花$days <- as.numeric(金银花$days)
+金银花$total <- 金银花$DD*金银花$days
+金银花$total <- as.numeric(金银花$total)
+det1<-as.data.frame(金银花[,c("Name","total","CMN","days")])
+#生成Name为识别号的数据框
+kq2019_intakesum<-reshape2::dcast(det1, 	
+                                  Name ~ CMN,
+                                  value.var = "total", sum)	
+金银花_kq2019_intakesum<-as.vector(as.matrix(kq2019_intakesum$`金银花`))
+kq2019_dayssum<-reshape2::dcast(det1,
+                                Name ~  CMN,
+                                value.var = "days",sum)
+金银花_kq2019_dayssum<-as.vector(as.matrix(kq2019_dayssum$`金银花`))
+#合并金银花的消费量和days表格
+kq2019_intakemergedays <- merge(x=kq2019_intakesum, y=kq2019_dayssum,
+                                by.x="Name",
+                                by.y="Name"
+)
+options(digits = 3)
+kq2019_intakemergedays$standard <- kq2019_intakemergedays$金银花.x/kq2019_intakemergedays$金银花.y
+金银花_kq2019_dailyintake <- as.vector(as.matrix(kq2019_intakemergedays$standard))
+
+#将三个厂的数据结合
+colnames(hq2019_raw_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(wansc2019_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_intakemergedays,kq2019_intakemergedays)
+wansc2019_hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_kq2019_intakemergedays,wansc2019_intakemergedays)
+colnames(wansc2019_hq2019_raw_kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+write.table(wansc2019_hq2019_raw_kq2019_intakemergedays,file="D:\\A长三院\\识别号更改后\\三家药厂金银花个人摄入量.csv",row.names = F,col.names = T,sep=",")
+```
+
+
+<center>
+```{r 金银花 intake distribution, echo=FALSE}
+#
+options(digits=1)
+金银花_wansc2019_hq2019_raw_kq2019_intakesum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$intakesum))
+年摄入量<-c(quantile(金银花_wansc2019_hq2019_raw_kq2019_intakesum, probs = c(0.05,0.5,0.95)), mean(金银花_wansc2019_hq2019_raw_kq2019_intakesum))
+#算摄入天数百分比
+金银花_wansc2019_hq2019_raw_kq2019_dayssum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$days))
+摄入天数 <- c(quantile(金银花_wansc2019_hq2019_raw_kq2019_dayssum, probs = c(0.05,0.5,0.95)), mean(金银花_wansc2019_hq2019_raw_kq2019_dayssum))
+#算每日摄入量百分比
+金银花_wansc2019_hq2019_raw_kq2019_dailyintake <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$standard))
+每日摄入量 <- c(quantile(金银花_wansc2019_hq2019_raw_kq2019_dailyintake, probs = c(0.05,0.5,0.95)), mean(金银花_hq2019_raw_dailyintake))
+#作金银花摄入量分布图
+hist(金银花_wansc2019_hq2019_raw_kq2019_intakesum,
+        main="",
+        xlab="金银花(g)",ylab="Frequency",
+        col = "#56B4E9",border = TRUE,cex.axis=0.7,cex.lab=0.7,
+        xlim=c(0,2*年摄入量[3]),ylim=c(0,max(table(金银花_wansc2019_hq2019_raw_kq2019_intakesum))*2),
+        breaks = 年摄入量[3]/10)
+#画直线
+
+abline(v = 年摄入量,lty = 3,lwd = 2,col=c("green","yellow","red","orange"))
+#加标注
+A4<-paste(c("p5     ","p50   ","p95   ","mean"),
+          c(round(年摄入量[1:2],4),round(年摄入量[3],4),round(年摄入量[4],0)),
+          sep=":")
+legend("topright",legend=A4, 
+       col=c("green","yellow","red","orange"),lty=c(2,2,2,2),lwd=c(2,2,2,2),cex=0.6,bty = "o")
+#线上写文字
+text(c(年摄入量[1]-2.5*年摄入量[3]/50,
+           年摄入量[2]+2.5*年摄入量[3]/30,
+           年摄入量[4]+2.5*年摄入量[3]/20,
+           年摄入量[3]-2.5*年摄入量[3]/30),
+     max(table(金银花_wansc2019_hq2019_raw_kq2019_intakesum))*2,
+     c("p5","p50","mean","p95"),cex=0.7)
+```
+<center><font face="黑体" size=2>图 9 2019年上海部分饮片厂金银花年摄入量总体分布图(单位：g)</center></font>
+  
+  <center><font face="黑体" size=2>表 9 2019年上海部分饮片厂饮片厂金银花摄入量分布情况表</center></font>
+```{r 金银花 summary , echo=FALSE}
+#生成2019年金银花摄入量分布表
+options(digits=1)
+p4 <- rbind(年摄入量,摄入天数,每日摄入量)
+p4 <-t(p4)
+rownames(p4) <- c("P5","P50","P95","平均值")
+colnames(p4) <- c("年摄入量（g/y）","摄入天数（d）","每日摄入量（g/d）")
+kable(p4)%>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r 金银花 export , echo=FALSE}
+paste("上海部分饮片厂2019年中药摄入量的数据中，摄入金银花的人数大约为",length(wansc2019_hq2019_raw_kq2019_intakemergedays$Name),"人，2019年金银花的年摄入量P50值、P95值和平均值分别为",round(p4[2,1],1),"、",round(p4[3,1],1),"和",round(p4[4,1],1), " g/y，摄入天数的P50值、P95值和平均值分别为",round(p4[2,2],1),"、",round(p4[3,2],1),"和",round(p4[4,2],1), " d，每日摄入量的P50值、P95值和平均值分别为",round(p4[2,3],1),"、",round(p4[3,3],1),"和",round(p4[4,3],1), " g/d。",sep="")
+```
+
+
+
+
+```{r 麦冬 data clean, echo=FALSE}
+
+# --------提取万仕城麦冬的数据---------
+t <- which(stringr::str_detect(wansc2019$CMN,"麦冬"))
+麦冬 <- wansc2019[t,]
+麦冬$DD <- as.numeric(麦冬$DD)
+麦冬$days <- as.numeric(麦冬$days)
+麦冬$ds <- 麦冬$DD*麦冬$days
+麦冬$ds <- as.numeric(麦冬$ds)
+det1<-as.data.frame(麦冬[,c("ID_Name","ds","CMN","days")])
+#生成ID_Name为识别号的数据框 
+wansc2019_intakesum<-reshape2::dcast(det1, 	
+                           ID_Name ~ CMN,
+                           value.var = "ds", sum)	
+麦冬_wansc2019_intakesum<-as.vector(as.matrix(wansc2019_intakesum$`麦冬`))
+wansc2019_dayssum<-reshape2::dcast(det1,
+                      ID_Name ~  CMN,
+                      value.var = "days",sum)
+麦冬_wansc2019_dayssum<-as.vector(as.matrix(wansc2019_dayssum$`麦冬`))
+#合并麦冬的消费量和days表格
+wansc2019_intakemergedays <- merge(x=wansc2019_intakesum, y=wansc2019_dayssum,
+                         by.x="ID_Name",
+                         by.y="ID_Name"
+)
+options(digits = 3)
+wansc2019_intakemergedays$standard <- wansc2019_intakemergedays$麦冬.x/wansc2019_intakemergedays$麦冬.y
+麦冬_dailyintake <- as.vector(as.matrix(wansc2019_intakemergedays$standard))
+
+#--------提取虹桥麦冬的数据---------
+麦冬 <- hq2019_raw[hq2019_raw$CMN =="麦冬",]
+麦冬$DD <- as.numeric(麦冬$DD)
+麦冬$days <- as.numeric(麦冬$days)
+麦冬$total <- 麦冬$DD*麦冬$days
+麦冬$total <- as.numeric(麦冬$total)
+det1<-as.data.frame(麦冬[,c("H_Name","total","CMN","days")])
+#生成H_Name为识别号的数据框
+hq2019_raw_intakesum<-reshape2::dcast(det1, 	
+                                  H_Name ~ CMN,
+                                  value.var = "total", sum)	
+麦冬_hq2019_raw_intakesum<-as.vector(as.matrix(hq2019_raw_intakesum$`麦冬`))
+hq2019_raw_dayssum<-reshape2::dcast(det1,
+                                H_Name ~  CMN,
+                                value.var = "days",sum)
+麦冬_hq2019_raw_dayssum<-as.vector(as.matrix(hq2019_raw_dayssum$`麦冬`))
+#合并麦冬的消费量和days表格
+hq2019_raw_intakemergedays <- merge(x=hq2019_raw_intakesum, y=hq2019_raw_dayssum,
+                                by.x="H_Name",
+                                by.y="H_Name"
+)
+options(digits = 3)
+hq2019_raw_intakemergedays$standard <- hq2019_raw_intakemergedays$麦冬.x/hq2019_raw_intakemergedays$麦冬.y
+麦冬_hq2019_raw_dailyintake <- as.vector(as.matrix(hq2019_raw_intakemergedays$standard))
+
+#--------提取康桥麦冬的数据---------
+麦冬 <- kq2019[kq2019$CMN =="麦冬",]
+麦冬$DD <- as.numeric(麦冬$DD)
+麦冬$days <- as.numeric(麦冬$days)
+麦冬$total <- 麦冬$DD*麦冬$days
+麦冬$total <- as.numeric(麦冬$total)
+det1<-as.data.frame(麦冬[,c("Name","total","CMN","days")])
+#生成Name为识别号的数据框
+kq2019_intakesum<-reshape2::dcast(det1, 	
+                                  Name ~ CMN,
+                                  value.var = "total", sum)	
+麦冬_kq2019_intakesum<-as.vector(as.matrix(kq2019_intakesum$`麦冬`))
+kq2019_dayssum<-reshape2::dcast(det1,
+                                Name ~  CMN,
+                                value.var = "days",sum)
+麦冬_kq2019_dayssum<-as.vector(as.matrix(kq2019_dayssum$`麦冬`))
+#合并麦冬的消费量和days表格
+kq2019_intakemergedays <- merge(x=kq2019_intakesum, y=kq2019_dayssum,
+                                by.x="Name",
+                                by.y="Name"
+)
+options(digits = 3)
+kq2019_intakemergedays$standard <- kq2019_intakemergedays$麦冬.x/kq2019_intakemergedays$麦冬.y
+麦冬_kq2019_dailyintake <- as.vector(as.matrix(kq2019_intakemergedays$standard))
+
+#将三个厂的数据结合
+colnames(hq2019_raw_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(wansc2019_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_intakemergedays,kq2019_intakemergedays)
+wansc2019_hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_kq2019_intakemergedays,wansc2019_intakemergedays)
+colnames(wansc2019_hq2019_raw_kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+write.table(wansc2019_hq2019_raw_kq2019_intakemergedays,file="D:\\A长三院\\识别号更改后\\三家药厂麦冬个人摄入量.csv",row.names = F,col.names = T,sep=",")
+```
+
+
+<center>
+```{r 麦冬 intake distribution, echo=FALSE}
+#
+options(digits=1)
+麦冬_wansc2019_hq2019_raw_kq2019_intakesum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$intakesum))
+年摄入量<-c(quantile(麦冬_wansc2019_hq2019_raw_kq2019_intakesum, probs = c(0.05,0.5,0.95)), mean(麦冬_wansc2019_hq2019_raw_kq2019_intakesum))
+#算摄入天数百分比
+麦冬_wansc2019_hq2019_raw_kq2019_dayssum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$days))
+摄入天数 <- c(quantile(麦冬_wansc2019_hq2019_raw_kq2019_dayssum, probs = c(0.05,0.5,0.95)), mean(麦冬_wansc2019_hq2019_raw_kq2019_dayssum))
+#算每日摄入量百分比
+麦冬_wansc2019_hq2019_raw_kq2019_dailyintake <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$standard))
+每日摄入量 <- c(quantile(麦冬_wansc2019_hq2019_raw_kq2019_dailyintake, probs = c(0.05,0.5,0.95)), mean(麦冬_hq2019_raw_dailyintake))
+#作麦冬摄入量分布图
+hist(麦冬_wansc2019_hq2019_raw_kq2019_intakesum,
+        main="",
+        xlab="麦冬(g)",ylab="Frequency",
+        col = "#56B4E9",border = TRUE,cex.axis=0.7,cex.lab=0.7,
+        xlim=c(0,2*年摄入量[3]),ylim=c(0,max(table(麦冬_wansc2019_hq2019_raw_kq2019_intakesum))*2),
+        breaks = 年摄入量[3]/10)
+#画直线
+
+abline(v = 年摄入量,lty = 3,lwd = 2,col=c("green","yellow","red","orange"))
+#加标注
+A4<-paste(c("p5     ","p50   ","p95   ","mean"),
+          c(round(年摄入量[1:2],4),round(年摄入量[3],4),round(年摄入量[4],0)),
+          sep=":")
+legend("topright",legend=A4, 
+       col=c("green","yellow","red","orange"),lty=c(2,2,2,2),lwd=c(2,2,2,2),cex=0.6,bty = "o")
+#线上写文字
+text(c(年摄入量[1]-2.5*年摄入量[3]/50,
+           年摄入量[2]+2.5*年摄入量[3]/30,
+           年摄入量[4]+2.5*年摄入量[3]/20,
+           年摄入量[3]-2.5*年摄入量[3]/30),
+     max(table(麦冬_wansc2019_hq2019_raw_kq2019_intakesum))*2,
+     c("p5","p50","mean","p95"),cex=0.7)
+```
+<center><font face="黑体" size=2>图 10 2019年上海部分饮片厂麦冬年摄入量总体分布图(单位：g)</center></font>
+  
+  <center><font face="黑体" size=2>表 10 2019年上海部分饮片厂饮片厂麦冬摄入量分布情况表</center></font>
+```{r 麦冬 summary , echo=FALSE}
+#生成2019年麦冬摄入量分布表
+options(digits=1)
+p4 <- rbind(年摄入量,摄入天数,每日摄入量)
+p4 <-t(p4)
+rownames(p4) <- c("P5","P50","P95","平均值")
+colnames(p4) <- c("年摄入量（g/y）","摄入天数（d）","每日摄入量（g/d）")
+kable(p4)%>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r 麦冬 export , echo=FALSE}
+paste("上海部分饮片厂2019年中药摄入量的数据中，摄入麦冬的人数大约为",length(wansc2019_hq2019_raw_kq2019_intakemergedays$Name),"人，2019年麦冬的年摄入量P50值、P95值和平均值分别为",round(p4[2,1],1),"、",round(p4[3,1],1),"和",round(p4[4,1],1), " g/y，摄入天数的P50值、P95值和平均值分别为",round(p4[2,2],1),"、",round(p4[3,2],1),"和",round(p4[4,2],1), " d，每日摄入量的P50值、P95值和平均值分别为",round(p4[2,3],1),"、",round(p4[3,3],1),"和",round(p4[4,3],1), " g/d。",sep="")
+```
+
+
+
+
+```{r 党参 data clean, echo=FALSE}
+
+# --------提取万仕城党参的数据---------
+t <- which(stringr::str_detect(wansc2019$CMN,"党参"))
+党参 <- wansc2019[t,]
+党参$DD <- as.numeric(党参$DD)
+党参$days <- as.numeric(党参$days)
+党参$ds <- 党参$DD*党参$days
+党参$ds <- as.numeric(党参$ds)
+det1<-as.data.frame(党参[,c("ID_Name","ds","CMN","days")])
+#生成ID_Name为识别号的数据框 
+wansc2019_intakesum<-reshape2::dcast(det1, 	
+                           ID_Name ~ CMN,
+                           value.var = "ds", sum)	
+党参_wansc2019_intakesum<-as.vector(as.matrix(wansc2019_intakesum$`党参`))
+wansc2019_dayssum<-reshape2::dcast(det1,
+                      ID_Name ~  CMN,
+                      value.var = "days",sum)
+党参_wansc2019_dayssum<-as.vector(as.matrix(wansc2019_dayssum$`党参`))
+#合并党参的消费量和days表格
+wansc2019_intakemergedays <- merge(x=wansc2019_intakesum, y=wansc2019_dayssum,
+                         by.x="ID_Name",
+                         by.y="ID_Name"
+)
+options(digits = 3)
+wansc2019_intakemergedays$standard <- wansc2019_intakemergedays$党参.x/wansc2019_intakemergedays$党参.y
+党参_dailyintake <- as.vector(as.matrix(wansc2019_intakemergedays$standard))
+
+#--------提取虹桥党参的数据---------
+党参 <- hq2019_raw[hq2019_raw$CMN =="党参",]
+党参$DD <- as.numeric(党参$DD)
+党参$days <- as.numeric(党参$days)
+党参$total <- 党参$DD*党参$days
+党参$total <- as.numeric(党参$total)
+det1<-as.data.frame(党参[,c("H_Name","total","CMN","days")])
+#生成H_Name为识别号的数据框
+hq2019_raw_intakesum<-reshape2::dcast(det1, 	
+                                  H_Name ~ CMN,
+                                  value.var = "total", sum)	
+党参_hq2019_raw_intakesum<-as.vector(as.matrix(hq2019_raw_intakesum$`党参`))
+hq2019_raw_dayssum<-reshape2::dcast(det1,
+                                H_Name ~  CMN,
+                                value.var = "days",sum)
+党参_hq2019_raw_dayssum<-as.vector(as.matrix(hq2019_raw_dayssum$`党参`))
+#合并党参的消费量和days表格
+hq2019_raw_intakemergedays <- merge(x=hq2019_raw_intakesum, y=hq2019_raw_dayssum,
+                                by.x="H_Name",
+                                by.y="H_Name"
+)
+options(digits = 3)
+hq2019_raw_intakemergedays$standard <- hq2019_raw_intakemergedays$党参.x/hq2019_raw_intakemergedays$党参.y
+党参_hq2019_raw_dailyintake <- as.vector(as.matrix(hq2019_raw_intakemergedays$standard))
+
+#--------提取康桥党参的数据---------
+党参 <- kq2019[kq2019$CMN =="党参",]
+党参$DD <- as.numeric(党参$DD)
+党参$days <- as.numeric(党参$days)
+党参$total <- 党参$DD*党参$days
+党参$total <- as.numeric(党参$total)
+det1<-as.data.frame(党参[,c("Name","total","CMN","days")])
+#生成Name为识别号的数据框
+kq2019_intakesum<-reshape2::dcast(det1, 	
+                                  Name ~ CMN,
+                                  value.var = "total", sum)	
+党参_kq2019_intakesum<-as.vector(as.matrix(kq2019_intakesum$`党参`))
+kq2019_dayssum<-reshape2::dcast(det1,
+                                Name ~  CMN,
+                                value.var = "days",sum)
+党参_kq2019_dayssum<-as.vector(as.matrix(kq2019_dayssum$`党参`))
+#合并党参的消费量和days表格
+kq2019_intakemergedays <- merge(x=kq2019_intakesum, y=kq2019_dayssum,
+                                by.x="Name",
+                                by.y="Name"
+)
+options(digits = 3)
+kq2019_intakemergedays$standard <- kq2019_intakemergedays$党参.x/kq2019_intakemergedays$党参.y
+党参_kq2019_dailyintake <- as.vector(as.matrix(kq2019_intakemergedays$standard))
+
+#将三个厂的数据结合
+colnames(hq2019_raw_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(wansc2019_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_intakemergedays,kq2019_intakemergedays)
+wansc2019_hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_kq2019_intakemergedays,wansc2019_intakemergedays)
+colnames(wansc2019_hq2019_raw_kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+write.table(wansc2019_hq2019_raw_kq2019_intakemergedays,file="D:\\A长三院\\识别号更改后\\三家药厂党参个人摄入量.csv",row.names = F,col.names = T,sep=",")
+```
+
+
+<center>
+```{r 党参 intake distribution, echo=FALSE}
+#
+options(digits=1)
+党参_wansc2019_hq2019_raw_kq2019_intakesum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$intakesum))
+年摄入量<-c(quantile(党参_wansc2019_hq2019_raw_kq2019_intakesum, probs = c(0.05,0.5,0.95)), mean(党参_wansc2019_hq2019_raw_kq2019_intakesum))
+#算摄入天数百分比
+党参_wansc2019_hq2019_raw_kq2019_dayssum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$days))
+摄入天数 <- c(quantile(党参_wansc2019_hq2019_raw_kq2019_dayssum, probs = c(0.05,0.5,0.95)), mean(党参_wansc2019_hq2019_raw_kq2019_dayssum))
+#算每日摄入量百分比
+党参_wansc2019_hq2019_raw_kq2019_dailyintake <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$standard))
+每日摄入量 <- c(quantile(党参_wansc2019_hq2019_raw_kq2019_dailyintake, probs = c(0.05,0.5,0.95)), mean(党参_hq2019_raw_dailyintake))
+#作党参摄入量分布图
+hist(党参_wansc2019_hq2019_raw_kq2019_intakesum,
+        main="",
+        xlab="党参(g)",ylab="Frequency",
+        col = "#56B4E9",border = TRUE,cex.axis=0.7,cex.lab=0.7,
+        xlim=c(0,2*年摄入量[3]),ylim=c(0,max(table(党参_wansc2019_hq2019_raw_kq2019_intakesum))*2),
+        breaks = 年摄入量[3]/10)
+#画直线
+
+abline(v = 年摄入量,lty = 3,lwd = 2,col=c("green","yellow","red","orange"))
+#加标注
+A4<-paste(c("p5     ","p50   ","p95   ","mean"),
+          c(round(年摄入量[1:2],4),round(年摄入量[3],4),round(年摄入量[4],0)),
+          sep=":")
+legend("topright",legend=A4, 
+       col=c("green","yellow","red","orange"),lty=c(2,2,2,2),lwd=c(2,2,2,2),cex=0.6,bty = "o")
+#线上写文字
+text(c(年摄入量[1]-2.5*年摄入量[3]/50,
+           年摄入量[2]+2.5*年摄入量[3]/30,
+           年摄入量[4]+2.5*年摄入量[3]/20,
+           年摄入量[3]-2.5*年摄入量[3]/30),
+     max(table(党参_wansc2019_hq2019_raw_kq2019_intakesum))*2,
+     c("p5","p50","mean","p95"),cex=0.7)
+```
+<center><font face="黑体" size=2>图 11 2019年上海部分饮片厂党参年摄入量总体分布图(单位：g)</center></font>
+  
+  <center><font face="黑体" size=2>表 11 2019年上海部分饮片厂饮片厂党参摄入量分布情况表</center></font>
+```{r 党参 summary , echo=FALSE}
+#生成2019年党参摄入量分布表
+options(digits=1)
+p4 <- rbind(年摄入量,摄入天数,每日摄入量)
+p4 <-t(p4)
+rownames(p4) <- c("P5","P50","P95","平均值")
+colnames(p4) <- c("年摄入量（g/y）","摄入天数（d）","每日摄入量（g/d）")
+kable(p4)%>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r 党参 export , echo=FALSE}
+paste("上海部分饮片厂2019年中药摄入量的数据中，摄入党参的人数大约为",length(wansc2019_hq2019_raw_kq2019_intakemergedays$Name),"人，2019年党参的年摄入量P50值、P95值和平均值分别为",round(p4[2,1],1),"、",round(p4[3,1],1),"和",round(p4[4,1],1), " g/y，摄入天数的P50值、P95值和平均值分别为",round(p4[2,2],1),"、",round(p4[3,2],1),"和",round(p4[4,2],1), " d，每日摄入量的P50值、P95值和平均值分别为",round(p4[2,3],1),"、",round(p4[3,3],1),"和",round(p4[4,3],1), " g/d。",sep="")
+```
+
+
+
+
+```{r 山药 data clean, echo=FALSE}
+
+# --------提取万仕城山药的数据---------
+t <- which(stringr::str_detect(wansc2019$CMN,"山药"))
+山药 <- wansc2019[t,]
+山药$DD <- as.numeric(山药$DD)
+山药$days <- as.numeric(山药$days)
+山药$ds <- 山药$DD*山药$days
+山药$ds <- as.numeric(山药$ds)
+det1<-as.data.frame(山药[,c("ID_Name","ds","CMN","days")])
+#生成ID_Name为识别号的数据框 
+wansc2019_intakesum<-reshape2::dcast(det1, 	
+                           ID_Name ~ CMN,
+                           value.var = "ds", sum)	
+山药_wansc2019_intakesum<-as.vector(as.matrix(wansc2019_intakesum$`山药`))
+wansc2019_dayssum<-reshape2::dcast(det1,
+                      ID_Name ~  CMN,
+                      value.var = "days",sum)
+山药_wansc2019_dayssum<-as.vector(as.matrix(wansc2019_dayssum$`山药`))
+#合并山药的消费量和days表格
+wansc2019_intakemergedays <- merge(x=wansc2019_intakesum, y=wansc2019_dayssum,
+                         by.x="ID_Name",
+                         by.y="ID_Name"
+)
+options(digits = 3)
+wansc2019_intakemergedays$standard <- wansc2019_intakemergedays$山药.x/wansc2019_intakemergedays$山药.y
+山药_dailyintake <- as.vector(as.matrix(wansc2019_intakemergedays$standard))
+
+#--------提取虹桥山药的数据---------
+山药 <- hq2019_raw[hq2019_raw$CMN =="山药",]
+山药$DD <- as.numeric(山药$DD)
+山药$days <- as.numeric(山药$days)
+山药$total <- 山药$DD*山药$days
+山药$total <- as.numeric(山药$total)
+det1<-as.data.frame(山药[,c("H_Name","total","CMN","days")])
+#生成H_Name为识别号的数据框
+hq2019_raw_intakesum<-reshape2::dcast(det1, 	
+                                  H_Name ~ CMN,
+                                  value.var = "total", sum)	
+山药_hq2019_raw_intakesum<-as.vector(as.matrix(hq2019_raw_intakesum$`山药`))
+hq2019_raw_dayssum<-reshape2::dcast(det1,
+                                H_Name ~  CMN,
+                                value.var = "days",sum)
+山药_hq2019_raw_dayssum<-as.vector(as.matrix(hq2019_raw_dayssum$`山药`))
+#合并山药的消费量和days表格
+hq2019_raw_intakemergedays <- merge(x=hq2019_raw_intakesum, y=hq2019_raw_dayssum,
+                                by.x="H_Name",
+                                by.y="H_Name"
+)
+options(digits = 3)
+hq2019_raw_intakemergedays$standard <- hq2019_raw_intakemergedays$山药.x/hq2019_raw_intakemergedays$山药.y
+山药_hq2019_raw_dailyintake <- as.vector(as.matrix(hq2019_raw_intakemergedays$standard))
+
+#--------提取康桥山药的数据---------
+山药 <- kq2019[kq2019$CMN =="山药",]
+山药$DD <- as.numeric(山药$DD)
+山药$days <- as.numeric(山药$days)
+山药$total <- 山药$DD*山药$days
+山药$total <- as.numeric(山药$total)
+det1<-as.data.frame(山药[,c("Name","total","CMN","days")])
+#生成Name为识别号的数据框
+kq2019_intakesum<-reshape2::dcast(det1, 	
+                                  Name ~ CMN,
+                                  value.var = "total", sum)	
+山药_kq2019_intakesum<-as.vector(as.matrix(kq2019_intakesum$`山药`))
+kq2019_dayssum<-reshape2::dcast(det1,
+                                Name ~  CMN,
+                                value.var = "days",sum)
+山药_kq2019_dayssum<-as.vector(as.matrix(kq2019_dayssum$`山药`))
+#合并山药的消费量和days表格
+kq2019_intakemergedays <- merge(x=kq2019_intakesum, y=kq2019_dayssum,
+                                by.x="Name",
+                                by.y="Name"
+)
+options(digits = 3)
+kq2019_intakemergedays$standard <- kq2019_intakemergedays$山药.x/kq2019_intakemergedays$山药.y
+山药_kq2019_dailyintake <- as.vector(as.matrix(kq2019_intakemergedays$standard))
+
+#将三个厂的数据结合
+colnames(hq2019_raw_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(wansc2019_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_intakemergedays,kq2019_intakemergedays)
+wansc2019_hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_kq2019_intakemergedays,wansc2019_intakemergedays)
+colnames(wansc2019_hq2019_raw_kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+write.table(wansc2019_hq2019_raw_kq2019_intakemergedays,file="D:\\A长三院\\识别号更改后\\三家药厂山药个人摄入量.csv",row.names = F,col.names = T,sep=",")
+```
+
+
+<center>
+```{r 山药 intake distribution, echo=FALSE}
+#
+options(digits=1)
+山药_wansc2019_hq2019_raw_kq2019_intakesum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$intakesum))
+年摄入量<-c(quantile(山药_wansc2019_hq2019_raw_kq2019_intakesum, probs = c(0.05,0.5,0.95)), mean(山药_wansc2019_hq2019_raw_kq2019_intakesum))
+#算摄入天数百分比
+山药_wansc2019_hq2019_raw_kq2019_dayssum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$days))
+摄入天数 <- c(quantile(山药_wansc2019_hq2019_raw_kq2019_dayssum, probs = c(0.05,0.5,0.95)), mean(山药_wansc2019_hq2019_raw_kq2019_dayssum))
+#算每日摄入量百分比
+山药_wansc2019_hq2019_raw_kq2019_dailyintake <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$standard))
+每日摄入量 <- c(quantile(山药_wansc2019_hq2019_raw_kq2019_dailyintake, probs = c(0.05,0.5,0.95)), mean(山药_hq2019_raw_dailyintake))
+#作山药摄入量分布图
+hist(山药_wansc2019_hq2019_raw_kq2019_intakesum,
+        main="",
+        xlab="山药(g)",ylab="Frequency",
+        col = "#56B4E9",border = TRUE,cex.axis=0.7,cex.lab=0.7,
+        xlim=c(0,2*年摄入量[3]),ylim=c(0,max(table(山药_wansc2019_hq2019_raw_kq2019_intakesum))*2),
+        breaks = 年摄入量[3]/10)
+#画直线
+
+abline(v = 年摄入量,lty = 3,lwd = 2,col=c("green","yellow","red","orange"))
+#加标注
+A4<-paste(c("p5     ","p50   ","p95   ","mean"),
+          c(round(年摄入量[1:2],4),round(年摄入量[3],4),round(年摄入量[4],0)),
+          sep=":")
+legend("topright",legend=A4, 
+       col=c("green","yellow","red","orange"),lty=c(2,2,2,2),lwd=c(2,2,2,2),cex=0.6,bty = "o")
+#线上写文字
+text(c(年摄入量[1]-2.5*年摄入量[3]/50,
+           年摄入量[2]+2.5*年摄入量[3]/30,
+           年摄入量[4]+2.5*年摄入量[3]/20,
+           年摄入量[3]-2.5*年摄入量[3]/30),
+     max(table(山药_wansc2019_hq2019_raw_kq2019_intakesum))*2,
+     c("p5","p50","mean","p95"),cex=0.7)
+```
+<center><font face="黑体" size=2>图 12 2019年上海部分饮片厂山药年摄入量总体分布图(单位：g)</center></font>
+  
+  <center><font face="黑体" size=2>表 12 2019年上海部分饮片厂饮片厂山药摄入量分布情况表</center></font>
+```{r 山药 summary , echo=FALSE}
+#生成2019年山药摄入量分布表
+options(digits=1)
+p4 <- rbind(年摄入量,摄入天数,每日摄入量)
+p4 <-t(p4)
+rownames(p4) <- c("P5","P50","P95","平均值")
+colnames(p4) <- c("年摄入量（g/y）","摄入天数（d）","每日摄入量（g/d）")
+kable(p4)%>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r 山药 export , echo=FALSE}
+paste("上海部分饮片厂2019年中药摄入量的数据中，摄入山药的人数大约为",length(wansc2019_hq2019_raw_kq2019_intakemergedays$Name),"人，2019年山药的年摄入量P50值、P95值和平均值分别为",round(p4[2,1],1),"、",round(p4[3,1],1),"和",round(p4[4,1],1), " g/y，摄入天数的P50值、P95值和平均值分别为",round(p4[2,2],1),"、",round(p4[3,2],1),"和",round(p4[4,2],1), " d，每日摄入量的P50值、P95值和平均值分别为",round(p4[2,3],1),"、",round(p4[3,3],1),"和",round(p4[4,3],1), " g/d。",sep="")
+```
+
+
+
+
+```{r 延胡索 data clean, echo=FALSE}
+
+# --------提取万仕城延胡索的数据---------
+t <- which(stringr::str_detect(wansc2019$CMN,"延胡索"))
+延胡索 <- wansc2019[t,]
+延胡索$DD <- as.numeric(延胡索$DD)
+延胡索$days <- as.numeric(延胡索$days)
+延胡索$ds <- 延胡索$DD*延胡索$days
+延胡索$ds <- as.numeric(延胡索$ds)
+det1<-as.data.frame(延胡索[,c("ID_Name","ds","CMN","days")])
+#生成ID_Name为识别号的数据框 
+wansc2019_intakesum<-reshape2::dcast(det1, 	
+                           ID_Name ~ CMN,
+                           value.var = "ds", sum)	
+延胡索_wansc2019_intakesum<-as.vector(as.matrix(wansc2019_intakesum$`延胡索`))
+wansc2019_dayssum<-reshape2::dcast(det1,
+                      ID_Name ~  CMN,
+                      value.var = "days",sum)
+延胡索_wansc2019_dayssum<-as.vector(as.matrix(wansc2019_dayssum$`延胡索`))
+#合并延胡索的消费量和days表格
+wansc2019_intakemergedays <- merge(x=wansc2019_intakesum, y=wansc2019_dayssum,
+                         by.x="ID_Name",
+                         by.y="ID_Name"
+)
+options(digits = 3)
+wansc2019_intakemergedays$standard <- wansc2019_intakemergedays$延胡索.x/wansc2019_intakemergedays$延胡索.y
+延胡索_dailyintake <- as.vector(as.matrix(wansc2019_intakemergedays$standard))
+
+#--------提取虹桥延胡索的数据---------
+延胡索 <- hq2019_raw[hq2019_raw$CMN =="延胡索",]
+延胡索$DD <- as.numeric(延胡索$DD)
+延胡索$days <- as.numeric(延胡索$days)
+延胡索$total <- 延胡索$DD*延胡索$days
+延胡索$total <- as.numeric(延胡索$total)
+det1<-as.data.frame(延胡索[,c("H_Name","total","CMN","days")])
+#生成H_Name为识别号的数据框
+hq2019_raw_intakesum<-reshape2::dcast(det1, 	
+                                  H_Name ~ CMN,
+                                  value.var = "total", sum)	
+延胡索_hq2019_raw_intakesum<-as.vector(as.matrix(hq2019_raw_intakesum$`延胡索`))
+hq2019_raw_dayssum<-reshape2::dcast(det1,
+                                H_Name ~  CMN,
+                                value.var = "days",sum)
+延胡索_hq2019_raw_dayssum<-as.vector(as.matrix(hq2019_raw_dayssum$`延胡索`))
+#合并延胡索的消费量和days表格
+hq2019_raw_intakemergedays <- merge(x=hq2019_raw_intakesum, y=hq2019_raw_dayssum,
+                                by.x="H_Name",
+                                by.y="H_Name"
+)
+options(digits = 3)
+hq2019_raw_intakemergedays$standard <- hq2019_raw_intakemergedays$延胡索.x/hq2019_raw_intakemergedays$延胡索.y
+延胡索_hq2019_raw_dailyintake <- as.vector(as.matrix(hq2019_raw_intakemergedays$standard))
+
+#--------提取康桥延胡索的数据---------
+延胡索 <- kq2019[kq2019$CMN =="延胡索",]
+延胡索$DD <- as.numeric(延胡索$DD)
+延胡索$days <- as.numeric(延胡索$days)
+延胡索$total <- 延胡索$DD*延胡索$days
+延胡索$total <- as.numeric(延胡索$total)
+det1<-as.data.frame(延胡索[,c("Name","total","CMN","days")])
+#生成Name为识别号的数据框
+kq2019_intakesum<-reshape2::dcast(det1, 	
+                                  Name ~ CMN,
+                                  value.var = "total", sum)	
+延胡索_kq2019_intakesum<-as.vector(as.matrix(kq2019_intakesum$`延胡索`))
+kq2019_dayssum<-reshape2::dcast(det1,
+                                Name ~  CMN,
+                                value.var = "days",sum)
+延胡索_kq2019_dayssum<-as.vector(as.matrix(kq2019_dayssum$`延胡索`))
+#合并延胡索的消费量和days表格
+kq2019_intakemergedays <- merge(x=kq2019_intakesum, y=kq2019_dayssum,
+                                by.x="Name",
+                                by.y="Name"
+)
+options(digits = 3)
+kq2019_intakemergedays$standard <- kq2019_intakemergedays$延胡索.x/kq2019_intakemergedays$延胡索.y
+延胡索_kq2019_dailyintake <- as.vector(as.matrix(kq2019_intakemergedays$standard))
+
+#将三个厂的数据结合
+colnames(hq2019_raw_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(wansc2019_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_intakemergedays,kq2019_intakemergedays)
+wansc2019_hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_kq2019_intakemergedays,wansc2019_intakemergedays)
+colnames(wansc2019_hq2019_raw_kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+write.table(wansc2019_hq2019_raw_kq2019_intakemergedays,file="D:\\A长三院\\识别号更改后\\三家药厂延胡索个人摄入量.csv",row.names = F,col.names = T,sep=",")
+```
+
+
+<center>
+```{r 延胡索 intake distribution, echo=FALSE}
+#
+options(digits=1)
+延胡索_wansc2019_hq2019_raw_kq2019_intakesum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$intakesum))
+年摄入量<-c(quantile(延胡索_wansc2019_hq2019_raw_kq2019_intakesum, probs = c(0.05,0.5,0.95)), mean(延胡索_wansc2019_hq2019_raw_kq2019_intakesum))
+#算摄入天数百分比
+延胡索_wansc2019_hq2019_raw_kq2019_dayssum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$days))
+摄入天数 <- c(quantile(延胡索_wansc2019_hq2019_raw_kq2019_dayssum, probs = c(0.05,0.5,0.95)), mean(延胡索_wansc2019_hq2019_raw_kq2019_dayssum))
+#算每日摄入量百分比
+延胡索_wansc2019_hq2019_raw_kq2019_dailyintake <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$standard))
+每日摄入量 <- c(quantile(延胡索_wansc2019_hq2019_raw_kq2019_dailyintake, probs = c(0.05,0.5,0.95)), mean(延胡索_hq2019_raw_dailyintake))
+#作延胡索摄入量分布图
+hist(延胡索_wansc2019_hq2019_raw_kq2019_intakesum,
+        main="",
+        xlab="延胡索(g)",ylab="Frequency",
+        col = "#56B4E9",border = TRUE,cex.axis=0.7,cex.lab=0.7,
+        xlim=c(0,2*年摄入量[3]),ylim=c(0,max(table(延胡索_wansc2019_hq2019_raw_kq2019_intakesum))*2),
+        breaks = 年摄入量[3]/10)
+#画直线
+
+abline(v = 年摄入量,lty = 3,lwd = 2,col=c("green","yellow","red","orange"))
+#加标注
+A4<-paste(c("p5     ","p50   ","p95   ","mean"),
+          c(round(年摄入量[1:2],4),round(年摄入量[3],4),round(年摄入量[4],0)),
+          sep=":")
+legend("topright",legend=A4, 
+       col=c("green","yellow","red","orange"),lty=c(2,2,2,2),lwd=c(2,2,2,2),cex=0.6,bty = "o")
+#线上写文字
+text(c(年摄入量[1]-2.5*年摄入量[3]/50,
+           年摄入量[2]+2.5*年摄入量[3]/30,
+           年摄入量[4]+2.5*年摄入量[3]/20,
+           年摄入量[3]-2.5*年摄入量[3]/30),
+     max(table(延胡索_wansc2019_hq2019_raw_kq2019_intakesum))*2,
+     c("p5","p50","mean","p95"),cex=0.7)
+```
+<center><font face="黑体" size=2>图 13 2019年上海部分饮片厂延胡索年摄入量总体分布图(单位：g)</center></font>
+  
+  <center><font face="黑体" size=2>表 13 2019年上海部分饮片厂饮片厂延胡索摄入量分布情况表</center></font>
+```{r 延胡索 summary , echo=FALSE}
+#生成2019年延胡索摄入量分布表
+options(digits=1)
+p4 <- rbind(年摄入量,摄入天数,每日摄入量)
+p4 <-t(p4)
+rownames(p4) <- c("P5","P50","P95","平均值")
+colnames(p4) <- c("年摄入量（g/y）","摄入天数（d）","每日摄入量（g/d）")
+kable(p4)%>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r 延胡索 export , echo=FALSE}
+paste("上海部分饮片厂2019年中药摄入量的数据中，摄入延胡索的人数大约为",length(wansc2019_hq2019_raw_kq2019_intakemergedays$Name),"人，2019年延胡索的年摄入量P50值、P95值和平均值分别为",round(p4[2,1],1),"、",round(p4[3,1],1),"和",round(p4[4,1],1), " g/y，摄入天数的P50值、P95值和平均值分别为",round(p4[2,2],1),"、",round(p4[3,2],1),"和",round(p4[4,2],1), " d，每日摄入量的P50值、P95值和平均值分别为",round(p4[2,3],1),"、",round(p4[3,3],1),"和",round(p4[4,3],1), " g/d。",sep="")
+```
+
+
+
+
+```{r 黄芩 data clean, echo=FALSE}
+
+# --------提取万仕城黄芩的数据---------
+t <- which(stringr::str_detect(wansc2019$CMN,"黄芩"))
+黄芩 <- wansc2019[t,]
+黄芩$DD <- as.numeric(黄芩$DD)
+黄芩$days <- as.numeric(黄芩$days)
+黄芩$ds <- 黄芩$DD*黄芩$days
+黄芩$ds <- as.numeric(黄芩$ds)
+det1<-as.data.frame(黄芩[,c("ID_Name","ds","CMN","days")])
+#生成ID_Name为识别号的数据框 
+wansc2019_intakesum<-reshape2::dcast(det1, 	
+                           ID_Name ~ CMN,
+                           value.var = "ds", sum)	
+黄芩_wansc2019_intakesum<-as.vector(as.matrix(wansc2019_intakesum$`黄芩`))
+wansc2019_dayssum<-reshape2::dcast(det1,
+                      ID_Name ~  CMN,
+                      value.var = "days",sum)
+黄芩_wansc2019_dayssum<-as.vector(as.matrix(wansc2019_dayssum$`黄芩`))
+#合并黄芩的消费量和days表格
+wansc2019_intakemergedays <- merge(x=wansc2019_intakesum, y=wansc2019_dayssum,
+                         by.x="ID_Name",
+                         by.y="ID_Name"
+)
+options(digits = 3)
+wansc2019_intakemergedays$standard <- wansc2019_intakemergedays$黄芩.x/wansc2019_intakemergedays$黄芩.y
+黄芩_dailyintake <- as.vector(as.matrix(wansc2019_intakemergedays$standard))
+
+#--------提取虹桥黄芩的数据---------
+黄芩 <- hq2019_raw[hq2019_raw$CMN =="黄芩",]
+黄芩$DD <- as.numeric(黄芩$DD)
+黄芩$days <- as.numeric(黄芩$days)
+黄芩$total <- 黄芩$DD*黄芩$days
+黄芩$total <- as.numeric(黄芩$total)
+det1<-as.data.frame(黄芩[,c("H_Name","total","CMN","days")])
+#生成H_Name为识别号的数据框
+hq2019_raw_intakesum<-reshape2::dcast(det1, 	
+                                  H_Name ~ CMN,
+                                  value.var = "total", sum)	
+黄芩_hq2019_raw_intakesum<-as.vector(as.matrix(hq2019_raw_intakesum$`黄芩`))
+hq2019_raw_dayssum<-reshape2::dcast(det1,
+                                H_Name ~  CMN,
+                                value.var = "days",sum)
+黄芩_hq2019_raw_dayssum<-as.vector(as.matrix(hq2019_raw_dayssum$`黄芩`))
+#合并黄芩的消费量和days表格
+hq2019_raw_intakemergedays <- merge(x=hq2019_raw_intakesum, y=hq2019_raw_dayssum,
+                                by.x="H_Name",
+                                by.y="H_Name"
+)
+options(digits = 3)
+hq2019_raw_intakemergedays$standard <- hq2019_raw_intakemergedays$黄芩.x/hq2019_raw_intakemergedays$黄芩.y
+黄芩_hq2019_raw_dailyintake <- as.vector(as.matrix(hq2019_raw_intakemergedays$standard))
+
+#--------提取康桥黄芩的数据---------
+黄芩 <- kq2019[kq2019$CMN =="黄芩",]
+黄芩$DD <- as.numeric(黄芩$DD)
+黄芩$days <- as.numeric(黄芩$days)
+黄芩$total <- 黄芩$DD*黄芩$days
+黄芩$total <- as.numeric(黄芩$total)
+det1<-as.data.frame(黄芩[,c("Name","total","CMN","days")])
+#生成Name为识别号的数据框
+kq2019_intakesum<-reshape2::dcast(det1, 	
+                                  Name ~ CMN,
+                                  value.var = "total", sum)	
+黄芩_kq2019_intakesum<-as.vector(as.matrix(kq2019_intakesum$`黄芩`))
+kq2019_dayssum<-reshape2::dcast(det1,
+                                Name ~  CMN,
+                                value.var = "days",sum)
+黄芩_kq2019_dayssum<-as.vector(as.matrix(kq2019_dayssum$`黄芩`))
+#合并黄芩的消费量和days表格
+kq2019_intakemergedays <- merge(x=kq2019_intakesum, y=kq2019_dayssum,
+                                by.x="Name",
+                                by.y="Name"
+)
+options(digits = 3)
+kq2019_intakemergedays$standard <- kq2019_intakemergedays$黄芩.x/kq2019_intakemergedays$黄芩.y
+黄芩_kq2019_dailyintake <- as.vector(as.matrix(kq2019_intakemergedays$standard))
+
+#将三个厂的数据结合
+colnames(hq2019_raw_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(wansc2019_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_intakemergedays,kq2019_intakemergedays)
+wansc2019_hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_kq2019_intakemergedays,wansc2019_intakemergedays)
+colnames(wansc2019_hq2019_raw_kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+write.table(wansc2019_hq2019_raw_kq2019_intakemergedays,file="D:\\A长三院\\识别号更改后\\三家药厂黄芩个人摄入量.csv",row.names = F,col.names = T,sep=",")
+```
+
+
+<center>
+```{r 黄芩 intake distribution, echo=FALSE}
+#
+options(digits=1)
+黄芩_wansc2019_hq2019_raw_kq2019_intakesum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$intakesum))
+年摄入量<-c(quantile(黄芩_wansc2019_hq2019_raw_kq2019_intakesum, probs = c(0.05,0.5,0.95)), mean(黄芩_wansc2019_hq2019_raw_kq2019_intakesum))
+#算摄入天数百分比
+黄芩_wansc2019_hq2019_raw_kq2019_dayssum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$days))
+摄入天数 <- c(quantile(黄芩_wansc2019_hq2019_raw_kq2019_dayssum, probs = c(0.05,0.5,0.95)), mean(黄芩_wansc2019_hq2019_raw_kq2019_dayssum))
+#算每日摄入量百分比
+黄芩_wansc2019_hq2019_raw_kq2019_dailyintake <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$standard))
+每日摄入量 <- c(quantile(黄芩_wansc2019_hq2019_raw_kq2019_dailyintake, probs = c(0.05,0.5,0.95)), mean(黄芩_hq2019_raw_dailyintake))
+#作黄芩摄入量分布图
+hist(黄芩_wansc2019_hq2019_raw_kq2019_intakesum,
+        main="",
+        xlab="黄芩(g)",ylab="Frequency",
+        col = "#56B4E9",border = TRUE,cex.axis=0.7,cex.lab=0.7,
+        xlim=c(0,2*年摄入量[3]),ylim=c(0,max(table(黄芩_wansc2019_hq2019_raw_kq2019_intakesum))*2),
+        breaks = 年摄入量[3]/10)
+#画直线
+
+abline(v = 年摄入量,lty = 3,lwd = 2,col=c("green","yellow","red","orange"))
+#加标注
+A4<-paste(c("p5     ","p50   ","p95   ","mean"),
+          c(round(年摄入量[1:2],4),round(年摄入量[3],4),round(年摄入量[4],0)),
+          sep=":")
+legend("topright",legend=A4, 
+       col=c("green","yellow","red","orange"),lty=c(2,2,2,2),lwd=c(2,2,2,2),cex=0.6,bty = "o")
+#线上写文字
+text(c(年摄入量[1]-2.5*年摄入量[3]/50,
+           年摄入量[2]+2.5*年摄入量[3]/30,
+           年摄入量[4]+2.5*年摄入量[3]/20,
+           年摄入量[3]-2.5*年摄入量[3]/30),
+     max(table(黄芩_wansc2019_hq2019_raw_kq2019_intakesum))*2,
+     c("p5","p50","mean","p95"),cex=0.7)
+```
+<center><font face="黑体" size=2>图 14 2019年上海部分饮片厂黄芩年摄入量总体分布图(单位：g)</center></font>
+  
+  <center><font face="黑体" size=2>表 14 2019年上海部分饮片厂饮片厂黄芩摄入量分布情况表</center></font>
+```{r 黄芩 summary , echo=FALSE}
+#生成2019年黄芩摄入量分布表
+options(digits=1)
+p4 <- rbind(年摄入量,摄入天数,每日摄入量)
+p4 <-t(p4)
+rownames(p4) <- c("P5","P50","P95","平均值")
+colnames(p4) <- c("年摄入量（g/y）","摄入天数（d）","每日摄入量（g/d）")
+kable(p4)%>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r 黄芩 export , echo=FALSE}
+paste("上海部分饮片厂2019年中药摄入量的数据中，摄入黄芩的人数大约为",length(wansc2019_hq2019_raw_kq2019_intakemergedays$Name),"人，2019年黄芩的年摄入量P50值、P95值和平均值分别为",round(p4[2,1],1),"、",round(p4[3,1],1),"和",round(p4[4,1],1), " g/y，摄入天数的P50值、P95值和平均值分别为",round(p4[2,2],1),"、",round(p4[3,2],1),"和",round(p4[4,2],1), " d，每日摄入量的P50值、P95值和平均值分别为",round(p4[2,3],1),"、",round(p4[3,3],1),"和",round(p4[4,3],1), " g/d。",sep="")
+```
+
+
+
+
+```{r 土鳖虫 data clean, echo=FALSE}
+
+# --------提取万仕城土鳖虫的数据---------
+t <- which(stringr::str_detect(wansc2019$CMN,"土鳖虫"))
+土鳖虫 <- wansc2019[t,]
+土鳖虫$DD <- as.numeric(土鳖虫$DD)
+土鳖虫$days <- as.numeric(土鳖虫$days)
+土鳖虫$ds <- 土鳖虫$DD*土鳖虫$days
+土鳖虫$ds <- as.numeric(土鳖虫$ds)
+det1<-as.data.frame(土鳖虫[,c("ID_Name","ds","CMN","days")])
+#生成ID_Name为识别号的数据框 
+wansc2019_intakesum<-reshape2::dcast(det1, 	
+                           ID_Name ~ CMN,
+                           value.var = "ds", sum)	
+土鳖虫_wansc2019_intakesum<-as.vector(as.matrix(wansc2019_intakesum$`土鳖虫`))
+wansc2019_dayssum<-reshape2::dcast(det1,
+                      ID_Name ~  CMN,
+                      value.var = "days",sum)
+土鳖虫_wansc2019_dayssum<-as.vector(as.matrix(wansc2019_dayssum$`土鳖虫`))
+#合并土鳖虫的消费量和days表格
+wansc2019_intakemergedays <- merge(x=wansc2019_intakesum, y=wansc2019_dayssum,
+                         by.x="ID_Name",
+                         by.y="ID_Name"
+)
+options(digits = 3)
+wansc2019_intakemergedays$standard <- wansc2019_intakemergedays$土鳖虫.x/wansc2019_intakemergedays$土鳖虫.y
+土鳖虫_dailyintake <- as.vector(as.matrix(wansc2019_intakemergedays$standard))
+
+#--------提取虹桥土鳖虫的数据---------
+土鳖虫 <- hq2019_raw[hq2019_raw$CMN =="土鳖虫",]
+土鳖虫$DD <- as.numeric(土鳖虫$DD)
+土鳖虫$days <- as.numeric(土鳖虫$days)
+土鳖虫$total <- 土鳖虫$DD*土鳖虫$days
+土鳖虫$total <- as.numeric(土鳖虫$total)
+det1<-as.data.frame(土鳖虫[,c("H_Name","total","CMN","days")])
+#生成H_Name为识别号的数据框
+hq2019_raw_intakesum<-reshape2::dcast(det1, 	
+                                  H_Name ~ CMN,
+                                  value.var = "total", sum)	
+土鳖虫_hq2019_raw_intakesum<-as.vector(as.matrix(hq2019_raw_intakesum$`土鳖虫`))
+hq2019_raw_dayssum<-reshape2::dcast(det1,
+                                H_Name ~  CMN,
+                                value.var = "days",sum)
+土鳖虫_hq2019_raw_dayssum<-as.vector(as.matrix(hq2019_raw_dayssum$`土鳖虫`))
+#合并土鳖虫的消费量和days表格
+hq2019_raw_intakemergedays <- merge(x=hq2019_raw_intakesum, y=hq2019_raw_dayssum,
+                                by.x="H_Name",
+                                by.y="H_Name"
+)
+options(digits = 3)
+hq2019_raw_intakemergedays$standard <- hq2019_raw_intakemergedays$土鳖虫.x/hq2019_raw_intakemergedays$土鳖虫.y
+土鳖虫_hq2019_raw_dailyintake <- as.vector(as.matrix(hq2019_raw_intakemergedays$standard))
+
+#--------提取康桥土鳖虫的数据---------
+土鳖虫 <- kq2019[kq2019$CMN =="土鳖虫",]
+土鳖虫$DD <- as.numeric(土鳖虫$DD)
+土鳖虫$days <- as.numeric(土鳖虫$days)
+土鳖虫$total <- 土鳖虫$DD*土鳖虫$days
+土鳖虫$total <- as.numeric(土鳖虫$total)
+det1<-as.data.frame(土鳖虫[,c("Name","total","CMN","days")])
+#生成Name为识别号的数据框
+kq2019_intakesum<-reshape2::dcast(det1, 	
+                                  Name ~ CMN,
+                                  value.var = "total", sum)	
+土鳖虫_kq2019_intakesum<-as.vector(as.matrix(kq2019_intakesum$`土鳖虫`))
+kq2019_dayssum<-reshape2::dcast(det1,
+                                Name ~  CMN,
+                                value.var = "days",sum)
+土鳖虫_kq2019_dayssum<-as.vector(as.matrix(kq2019_dayssum$`土鳖虫`))
+#合并土鳖虫的消费量和days表格
+kq2019_intakemergedays <- merge(x=kq2019_intakesum, y=kq2019_dayssum,
+                                by.x="Name",
+                                by.y="Name"
+)
+options(digits = 3)
+kq2019_intakemergedays$standard <- kq2019_intakemergedays$土鳖虫.x/kq2019_intakemergedays$土鳖虫.y
+土鳖虫_kq2019_dailyintake <- as.vector(as.matrix(kq2019_intakemergedays$standard))
+
+#将三个厂的数据结合
+colnames(hq2019_raw_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(wansc2019_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_intakemergedays,kq2019_intakemergedays)
+wansc2019_hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_kq2019_intakemergedays,wansc2019_intakemergedays)
+colnames(wansc2019_hq2019_raw_kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+write.table(wansc2019_hq2019_raw_kq2019_intakemergedays,file="D:\\A长三院\\识别号更改后\\三家药厂土鳖虫个人摄入量.csv",row.names = F,col.names = T,sep=",")
+```
+
+
+<center>
+```{r 土鳖虫 intake distribution, echo=FALSE}
+#
+options(digits=1)
+土鳖虫_wansc2019_hq2019_raw_kq2019_intakesum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$intakesum))
+年摄入量<-c(quantile(土鳖虫_wansc2019_hq2019_raw_kq2019_intakesum, probs = c(0.05,0.5,0.95)), mean(土鳖虫_wansc2019_hq2019_raw_kq2019_intakesum))
+#算摄入天数百分比
+土鳖虫_wansc2019_hq2019_raw_kq2019_dayssum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$days))
+摄入天数 <- c(quantile(土鳖虫_wansc2019_hq2019_raw_kq2019_dayssum, probs = c(0.05,0.5,0.95)), mean(土鳖虫_wansc2019_hq2019_raw_kq2019_dayssum))
+#算每日摄入量百分比
+土鳖虫_wansc2019_hq2019_raw_kq2019_dailyintake <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$standard))
+每日摄入量 <- c(quantile(土鳖虫_wansc2019_hq2019_raw_kq2019_dailyintake, probs = c(0.05,0.5,0.95)), mean(土鳖虫_hq2019_raw_dailyintake))
+#作土鳖虫摄入量分布图
+hist(土鳖虫_wansc2019_hq2019_raw_kq2019_intakesum,
+        main="",
+        xlab="土鳖虫(g)",ylab="Frequency",
+        col = "#56B4E9",border = TRUE,cex.axis=0.7,cex.lab=0.7,
+        xlim=c(0,2*年摄入量[3]),ylim=c(0,max(table(土鳖虫_wansc2019_hq2019_raw_kq2019_intakesum))*2),
+        breaks = 年摄入量[3]/10)
+#画直线
+
+abline(v = 年摄入量,lty = 3,lwd = 2,col=c("green","yellow","red","orange"))
+#加标注
+A4<-paste(c("p5     ","p50   ","p95   ","mean"),
+          c(round(年摄入量[1:2],4),round(年摄入量[3],4),round(年摄入量[4],0)),
+          sep=":")
+legend("topright",legend=A4, 
+       col=c("green","yellow","red","orange"),lty=c(2,2,2,2),lwd=c(2,2,2,2),cex=0.6,bty = "o")
+#线上写文字
+text(c(年摄入量[1]-2.5*年摄入量[3]/50,
+           年摄入量[2]+2.5*年摄入量[3]/30,
+           年摄入量[4]+2.5*年摄入量[3]/20,
+           年摄入量[3]-2.5*年摄入量[3]/30),
+     max(table(土鳖虫_wansc2019_hq2019_raw_kq2019_intakesum))*2,
+     c("p5","p50","mean","p95"),cex=0.7)
+```
+<center><font face="黑体" size=2>图 15 2019年上海部分饮片厂土鳖虫年摄入量总体分布图(单位：g)</center></font>
+  
+  <center><font face="黑体" size=2>表 15 2019年上海部分饮片厂饮片厂土鳖虫摄入量分布情况表</center></font>
+```{r 土鳖虫 summary , echo=FALSE}
+#生成2019年土鳖虫摄入量分布表
+options(digits=1)
+p4 <- rbind(年摄入量,摄入天数,每日摄入量)
+p4 <-t(p4)
+rownames(p4) <- c("P5","P50","P95","平均值")
+colnames(p4) <- c("年摄入量（g/y）","摄入天数（d）","每日摄入量（g/d）")
+kable(p4)%>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r 土鳖虫 export , echo=FALSE}
+paste("上海部分饮片厂2019年中药摄入量的数据中，摄入土鳖虫的人数大约为",length(wansc2019_hq2019_raw_kq2019_intakemergedays$Name),"人，2019年土鳖虫的年摄入量P50值、P95值和平均值分别为",round(p4[2,1],1),"、",round(p4[3,1],1),"和",round(p4[4,1],1), " g/y，摄入天数的P50值、P95值和平均值分别为",round(p4[2,2],1),"、",round(p4[3,2],1),"和",round(p4[4,2],1), " d，每日摄入量的P50值、P95值和平均值分别为",round(p4[2,3],1),"、",round(p4[3,3],1),"和",round(p4[4,3],1), " g/d。",sep="")
+```
+
+
+
+
+```{r 菊花 data clean, echo=FALSE}
+
+# --------提取万仕城菊花的数据---------
+t <- which(stringr::str_detect(wansc2019$CMN,"菊花"))
+菊花 <- wansc2019[t,]
+菊花$DD <- as.numeric(菊花$DD)
+菊花$days <- as.numeric(菊花$days)
+菊花$ds <- 菊花$DD*菊花$days
+菊花$ds <- as.numeric(菊花$ds)
+det1<-as.data.frame(菊花[,c("ID_Name","ds","CMN","days")])
+#生成ID_Name为识别号的数据框 
+wansc2019_intakesum<-reshape2::dcast(det1, 	
+                           ID_Name ~ CMN,
+                           value.var = "ds", sum)	
+菊花_wansc2019_intakesum<-as.vector(as.matrix(wansc2019_intakesum$`菊花`))
+wansc2019_dayssum<-reshape2::dcast(det1,
+                      ID_Name ~  CMN,
+                      value.var = "days",sum)
+菊花_wansc2019_dayssum<-as.vector(as.matrix(wansc2019_dayssum$`菊花`))
+#合并菊花的消费量和days表格
+wansc2019_intakemergedays <- merge(x=wansc2019_intakesum, y=wansc2019_dayssum,
+                         by.x="ID_Name",
+                         by.y="ID_Name"
+)
+options(digits = 3)
+wansc2019_intakemergedays$standard <- wansc2019_intakemergedays$菊花.x/wansc2019_intakemergedays$菊花.y
+菊花_dailyintake <- as.vector(as.matrix(wansc2019_intakemergedays$standard))
+
+#--------提取虹桥菊花的数据---------
+菊花 <- hq2019_raw[hq2019_raw$CMN =="菊花",]
+菊花$DD <- as.numeric(菊花$DD)
+菊花$days <- as.numeric(菊花$days)
+菊花$total <- 菊花$DD*菊花$days
+菊花$total <- as.numeric(菊花$total)
+det1<-as.data.frame(菊花[,c("H_Name","total","CMN","days")])
+#生成H_Name为识别号的数据框
+hq2019_raw_intakesum<-reshape2::dcast(det1, 	
+                                  H_Name ~ CMN,
+                                  value.var = "total", sum)	
+菊花_hq2019_raw_intakesum<-as.vector(as.matrix(hq2019_raw_intakesum$`菊花`))
+hq2019_raw_dayssum<-reshape2::dcast(det1,
+                                H_Name ~  CMN,
+                                value.var = "days",sum)
+菊花_hq2019_raw_dayssum<-as.vector(as.matrix(hq2019_raw_dayssum$`菊花`))
+#合并菊花的消费量和days表格
+hq2019_raw_intakemergedays <- merge(x=hq2019_raw_intakesum, y=hq2019_raw_dayssum,
+                                by.x="H_Name",
+                                by.y="H_Name"
+)
+options(digits = 3)
+hq2019_raw_intakemergedays$standard <- hq2019_raw_intakemergedays$菊花.x/hq2019_raw_intakemergedays$菊花.y
+菊花_hq2019_raw_dailyintake <- as.vector(as.matrix(hq2019_raw_intakemergedays$standard))
+
+#--------提取康桥菊花的数据---------
+菊花 <- kq2019[kq2019$CMN =="菊花",]
+菊花$DD <- as.numeric(菊花$DD)
+菊花$days <- as.numeric(菊花$days)
+菊花$total <- 菊花$DD*菊花$days
+菊花$total <- as.numeric(菊花$total)
+det1<-as.data.frame(菊花[,c("Name","total","CMN","days")])
+#生成Name为识别号的数据框
+kq2019_intakesum<-reshape2::dcast(det1, 	
+                                  Name ~ CMN,
+                                  value.var = "total", sum)	
+菊花_kq2019_intakesum<-as.vector(as.matrix(kq2019_intakesum$`菊花`))
+kq2019_dayssum<-reshape2::dcast(det1,
+                                Name ~  CMN,
+                                value.var = "days",sum)
+菊花_kq2019_dayssum<-as.vector(as.matrix(kq2019_dayssum$`菊花`))
+#合并菊花的消费量和days表格
+kq2019_intakemergedays <- merge(x=kq2019_intakesum, y=kq2019_dayssum,
+                                by.x="Name",
+                                by.y="Name"
+)
+options(digits = 3)
+kq2019_intakemergedays$standard <- kq2019_intakemergedays$菊花.x/kq2019_intakemergedays$菊花.y
+菊花_kq2019_dailyintake <- as.vector(as.matrix(kq2019_intakemergedays$standard))
+
+#将三个厂的数据结合
+colnames(hq2019_raw_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(wansc2019_intakemergedays) <- c("Name","intakesum","days","standard")
+colnames(kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_intakemergedays,kq2019_intakemergedays)
+wansc2019_hq2019_raw_kq2019_intakemergedays <- rbind(hq2019_raw_kq2019_intakemergedays,wansc2019_intakemergedays)
+colnames(wansc2019_hq2019_raw_kq2019_intakemergedays) <- c("Name","intakesum","days","standard")
+write.table(wansc2019_hq2019_raw_kq2019_intakemergedays,file="D:\\A长三院\\识别号更改后\\三家药厂菊花个人摄入量.csv",row.names = F,col.names = T,sep=",")
+```
+
+
+<center>
+```{r 菊花 intake distribution, echo=FALSE}
+#
+options(digits=1)
+菊花_wansc2019_hq2019_raw_kq2019_intakesum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$intakesum))
+年摄入量<-c(quantile(菊花_wansc2019_hq2019_raw_kq2019_intakesum, probs = c(0.05,0.5,0.95)), mean(菊花_wansc2019_hq2019_raw_kq2019_intakesum))
+#算摄入天数百分比
+菊花_wansc2019_hq2019_raw_kq2019_dayssum <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$days))
+摄入天数 <- c(quantile(菊花_wansc2019_hq2019_raw_kq2019_dayssum, probs = c(0.05,0.5,0.95)), mean(菊花_wansc2019_hq2019_raw_kq2019_dayssum))
+#算每日摄入量百分比
+菊花_wansc2019_hq2019_raw_kq2019_dailyintake <- as.vector(as.matrix(wansc2019_hq2019_raw_kq2019_intakemergedays$standard))
+每日摄入量 <- c(quantile(菊花_wansc2019_hq2019_raw_kq2019_dailyintake, probs = c(0.05,0.5,0.95)), mean(菊花_hq2019_raw_dailyintake))
+#作菊花摄入量分布图
+hist(菊花_wansc2019_hq2019_raw_kq2019_intakesum,
+        main="",
+        xlab="菊花(g)",ylab="Frequency",
+        col = "#56B4E9",border = TRUE,cex.axis=0.7,cex.lab=0.7,
+        xlim=c(0,2*年摄入量[3]),ylim=c(0,max(table(菊花_wansc2019_hq2019_raw_kq2019_intakesum))*2),
+        breaks = 年摄入量[3]/10)
+#画直线
+
+abline(v = 年摄入量,lty = 3,lwd = 2,col=c("green","yellow","red","orange"))
+#加标注
+A4<-paste(c("p5     ","p50   ","p95   ","mean"),
+          c(round(年摄入量[1:2],4),round(年摄入量[3],4),round(年摄入量[4],0)),
+          sep=":")
+legend("topright",legend=A4, 
+       col=c("green","yellow","red","orange"),lty=c(2,2,2,2),lwd=c(2,2,2,2),cex=0.6,bty = "o")
+#线上写文字
+text(c(年摄入量[1]-2.5*年摄入量[3]/50,
+           年摄入量[2]+2.5*年摄入量[3]/30,
+           年摄入量[4]+2.5*年摄入量[3]/20,
+           年摄入量[3]-2.5*年摄入量[3]/30),
+     max(table(菊花_wansc2019_hq2019_raw_kq2019_intakesum))*2,
+     c("p5","p50","mean","p95"),cex=0.7)
+```
+<center><font face="黑体" size=2>图 16 2019年上海部分饮片厂菊花年摄入量总体分布图(单位：g)</center></font>
+  
+  <center><font face="黑体" size=2>表 16 2019年上海部分饮片厂饮片厂菊花摄入量分布情况表</center></font>
+```{r 菊花 summary , echo=FALSE}
+#生成2019年菊花摄入量分布表
+options(digits=1)
+p4 <- rbind(年摄入量,摄入天数,每日摄入量)
+p4 <-t(p4)
+rownames(p4) <- c("P5","P50","P95","平均值")
+colnames(p4) <- c("年摄入量（g/y）","摄入天数（d）","每日摄入量（g/d）")
+kable(p4)%>%
+  kable_styling(full_width = F,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r 菊花 export , echo=FALSE}
+paste("上海部分饮片厂2019年中药摄入量的数据中，摄入菊花的人数大约为",length(wansc2019_hq2019_raw_kq2019_intakemergedays$Name),"人，2019年菊花的年摄入量P50值、P95值和平均值分别为",round(p4[2,1],1),"、",round(p4[3,1],1),"和",round(p4[4,1],1), " g/y，摄入天数的P50值、P95值和平均值分别为",round(p4[2,2],1),"、",round(p4[3,2],1),"和",round(p4[4,2],1), " d，每日摄入量的P50值、P95值和平均值分别为",round(p4[2,3],1),"、",round(p4[3,3],1),"和",round(p4[4,3],1), " g/d。",sep="")
+```
+
